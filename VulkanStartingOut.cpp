@@ -3,8 +3,11 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/vec4.hpp>
-#include <glm/mat4x4.hpp>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+#define VMA_IMPLEMENTATION
+#include "vk_mem_alloc.h"
 
 #include <shaderc/shaderc.hpp>
 
@@ -16,6 +19,7 @@
 #include <algorithm>
 #include <fstream>
 #include <filesystem>
+#include <functional>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -34,6 +38,8 @@ const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
+
+#define APP_VK_API_VERSION VK_API_VERSION_1_0
 
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
 	auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
@@ -111,7 +117,7 @@ public:
 		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
 			throw std::runtime_error("OutOfDateSwapchain");
 		}
-		else if (result != VK_SUCCESS ) {
+		else if (result != VK_SUCCESS) {
 			throw std::runtime_error("failed to acquire swap chain image!");
 		}
 		framesInFlight++;
@@ -241,8 +247,201 @@ private:
 
 };
 
+struct Vertex {
+	glm::vec3 pos;
+	glm::vec3 normal;
+
+	static VkVertexInputBindingDescription getBindingDescription() {
+		VkVertexInputBindingDescription bindingDescription{};
+		bindingDescription.binding = 0;
+		bindingDescription.stride = sizeof(Vertex);
+		bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+		return bindingDescription;
+	}
+
+	static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+		std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+		attributeDescriptions[0].binding = 0;
+		attributeDescriptions[0].location = 0;
+		attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+		attributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+		attributeDescriptions[1].binding = 0;
+		attributeDescriptions[1].location = 1;
+		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+		attributeDescriptions[1].offset = offsetof(Vertex, normal);
+
+		return attributeDescriptions;
+	}
+};
+
+class Buffer {
+public:
+	VkBuffer buffer;
+	VmaAllocation allocation;
+
+	Buffer() = default;
+
+	Buffer(VmaAllocator allocator, VkDeviceSize size, VkBufferUsageFlags usage, VmaAllocationCreateFlagBits vmaFlags, VkMemoryPropertyFlags requiredMemoryTypeFlags, VkMemoryPropertyFlags preferredMemoryTypeFlags = 0) {
+		VkBufferCreateInfo bufferInfo{};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = size;
+		bufferInfo.usage = usage;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo allocInfo = {};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocInfo.flags = vmaFlags;
+		allocInfo.requiredFlags = requiredMemoryTypeFlags;
+		allocInfo.preferredFlags = preferredMemoryTypeFlags;
+
+		if (vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &buffer, &allocation, nullptr) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create buffer!");
+		}
+	}
+
+	void cleanup(VmaAllocator allocator) {
+		vmaDestroyBuffer(allocator, buffer, allocation);
+	}
+};
+
+const std::vector<float> vertices = {
+	-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+	 0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+	 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+	 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+	-0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+	-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+
+	-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+	 0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+	 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+	 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+	-0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+	-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+
+	-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+	-0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+	-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+	-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+	-0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+	-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+
+	 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+	 0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+	 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+	 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+	 0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+	 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+
+	-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+	 0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+	 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+	 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+	-0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+	-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+
+	-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
+	 0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
+	 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+	 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+	-0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+	-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f
+};
+
+std::vector<Vertex> getCubeVertices() {
+	auto start = reinterpret_cast<const Vertex*>(vertices.data());
+	return std::vector<Vertex>(start, start + vertices.size());
+}
+
+void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
+	VkCommandBufferAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandPool = commandPool;
+	allocInfo.commandBufferCount = 1;
+
+	VkCommandBuffer commandBuffer;
+	vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+
+	VkCommandBufferBeginInfo beginInfo{};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+	VkBufferCopy copyRegion{};
+	copyRegion.srcOffset = 0; // Optional
+	copyRegion.dstOffset = 0; // Optional
+	copyRegion.size = size;
+	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+	vkEndCommandBuffer(commandBuffer);
+
+	VkSubmitInfo submitInfo{};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer;
+
+	vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(queue);
+
+	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+}
+
+struct MeshPushConstants {
+	glm::mat4 transform;
+};
+
+static MeshPushConstants tempPushConstant;
+
+
+class Cube {
+public:
+	Buffer buffer;
+	Cube() = default;
+	Cube(const VkDevice device, const VkCommandPool commandPool, const VkQueue queue, VmaAllocator allocator) {
+		const auto vertexData = getCubeVertices();
+		size_t vertexDataSize = vertexData.size() * sizeof(Vertex);
+		Buffer stagingBuffer = Buffer(
+			allocator, vertexDataSize,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+		);
+		void* stagingBufferData;
+		vmaMapMemory(allocator, stagingBuffer.allocation, &stagingBufferData);
+		memcpy(stagingBufferData, vertexData.data(), vertexData.size() * sizeof(Vertex));
+		vmaUnmapMemory(allocator, stagingBuffer.allocation);
+
+		this->buffer = Buffer(
+			allocator, vertexDataSize,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			(VmaAllocationCreateFlagBits)0,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+		copyBuffer(device, commandPool, queue, stagingBuffer.buffer, this->buffer.buffer, vertexDataSize);
+
+		stagingBuffer.cleanup(allocator);
+	}
+	void cleanup(VmaAllocator allocator) {
+		buffer.cleanup(allocator);
+	}
+};
+
 class Frame {
 public:
+	struct DrawArgs {
+		const VkDevice& device;
+		const VkQueue& graphicsQueue;
+		const VkQueue& presentQueue;
+		SwapChain& swapChain;
+		const VkRenderPass& renderPass;
+		const VkPipelineLayout& graphicsPipelineLayout;
+		const VkPipeline& graphicsPipeline;
+		const Cube& cube;
+	};
+
 	VkCommandBuffer commandBuffer;
 
 	VkFence inFlightFence;
@@ -283,62 +482,7 @@ public:
 		}
 	}
 
-	void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex,
-		const std::vector<VkFramebuffer>& swapChainFramebuffers, VkExtent2D swapChainExtent,
-		const VkRenderPass& renderPass, const VkPipeline& graphicsPipeline) {
-		VkCommandBufferBeginInfo beginInfo{};
-		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		beginInfo.flags = 0; // Optional
-		beginInfo.pInheritanceInfo = nullptr; // Optional
-
-		if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
-			throw std::runtime_error("failed to begin recording command buffer!");
-		}
-
-		VkRenderPassBeginInfo renderPassInfo{};
-		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		renderPassInfo.renderPass = renderPass;
-		renderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
-
-		renderPassInfo.renderArea.offset = { 0, 0 };
-		renderPassInfo.renderArea.extent = swapChainExtent;
-
-		VkClearValue clearColor = { {{0.0f, 0.0f, 0.0f, 1.0f}} };
-		renderPassInfo.clearValueCount = 1;
-		renderPassInfo.pClearValues = &clearColor;
-
-		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
-
-		VkViewport viewport{};
-		viewport.x = 0.0f;
-		viewport.y = 0.0f;
-		viewport.width = static_cast<float>(swapChainExtent.width);
-		viewport.height = static_cast<float>(swapChainExtent.height);
-		viewport.minDepth = 0.0f;
-		viewport.maxDepth = 1.0f;
-		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-		VkRect2D scissor{};
-		scissor.offset = { 0, 0 };
-		scissor.extent = swapChainExtent;
-		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
-		vkCmdDraw(commandBuffer, 3, 1, 0, 0);
-
-		vkCmdEndRenderPass(commandBuffer);
-
-		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
-			throw std::runtime_error("failed to record command buffer!");
-		}
-	}
-
-
-	void drawFrame(const VkDevice& device,
-		const VkQueue& graphicsQueue, const VkQueue& presentQueue,
-		SwapChain& swapChain,
-		const VkRenderPass& renderPass, const VkPipeline& graphicsPipeline) {
+	void drawFrame(VkDevice device, SwapChain& swapChain, VkQueue graphicsQueue, VkQueue presentQueue, std::function<void(VkCommandBuffer, uint32_t)> recordCommandBufferFunc) {
 
 		vkWaitForFences(device, 1, &this->inFlightFence, VK_TRUE, std::numeric_limits<uint64_t>::max());
 
@@ -353,7 +497,7 @@ public:
 		vkResetFences(device, 1, &inFlightFence);
 
 		vkResetCommandBuffer(commandBuffer, 0);
-		recordCommandBuffer(commandBuffer, imageIndex, swapChain.swapChainFramebuffers, swapChain.swapChainExtent, renderPass, graphicsPipeline);
+		recordCommandBufferFunc(commandBuffer, imageIndex);
 
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -374,7 +518,7 @@ public:
 		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence) != VK_SUCCESS) {
 			throw std::runtime_error("failed to submit draw command buffer!");
 		}
-		
+
 		swapChain.present(presentQueue, signalSemaphores, imageIndex);
 	}
 
@@ -404,20 +548,14 @@ private:
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 	VkDevice device;
 
+	VmaAllocator allocator;
+
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
-
-	//VkSwapchainKHR swapChain;
-	//std::vector<VkImage> swapChainImages;
-	//VkFormat swapChainImageFormat;
-	//VkExtent2D swapChainExtent;
-	//std::vector<VkImageView> swapChainImageViews;
-	//std::vector<VkFramebuffer> swapChainFramebuffers;
 
 	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
-
 	SwapChain swapChain;
 
 	VkCommandPool commandPool;
@@ -426,6 +564,8 @@ private:
 	uint32_t current_frame = 0;
 
 	shaderc::Compiler compiler = shaderc::Compiler();
+
+	Cube cube;
 
 	void initWindow() {
 		glfwInit();
@@ -442,6 +582,7 @@ private:
 		createSurface();
 		pickPhysicalDevice();
 		createLogicalDevice();
+		mCreateVmaAllocator();
 		auto swapCapabilities = querySwapChainSupport(physicalDevice);
 		auto swapChainFormat = chooseSwapSurfaceFormat(swapCapabilities.formats);
 		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
@@ -456,18 +597,85 @@ private:
 		createCommandPool();
 		for (auto& frame : frames)
 			frame = Frame(device, commandPool);
+		cube = Cube(device, commandPool, graphicsQueue, allocator);
 	}
 
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window)) {
-			uint32_t imageIndex = 0;
 			try {
-				frames[current_frame].drawFrame(
-					device,
-					graphicsQueue, presentQueue,
-					swapChain,
-					renderPass, graphicsPipeline
-				);
+				frames[current_frame].drawFrame(device, swapChain, graphicsQueue, presentQueue,
+					[&](VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+						VkCommandBufferBeginInfo beginInfo{};
+						beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+						beginInfo.flags = 0; // Optional
+						beginInfo.pInheritanceInfo = nullptr; // Optional
+
+						if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+							throw std::runtime_error("failed to begin recording command buffer!");
+						}
+
+						VkRenderPassBeginInfo renderPassInfo{};
+						renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+						renderPassInfo.renderPass = renderPass;
+						renderPassInfo.framebuffer = swapChain.swapChainFramebuffers[imageIndex];
+
+						renderPassInfo.renderArea.offset = { 0, 0 };
+						renderPassInfo.renderArea.extent = swapChain.swapChainExtent;
+
+						VkClearValue clearColor = { {{0.0f, 0.0f, 0.0f, 1.0f}} };
+						renderPassInfo.clearValueCount = 1;
+						renderPassInfo.pClearValues = &clearColor;
+
+						vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+						vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+						VkViewport viewport{};
+						viewport.x = 0.0f;
+						viewport.y = 0.0f;
+						viewport.width = static_cast<float>(swapChain.swapChainExtent.width);
+						viewport.height = static_cast<float>(swapChain.swapChainExtent.height);
+						viewport.minDepth = 0.0f;
+						viewport.maxDepth = 1.0f;
+						vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+						VkRect2D scissor{};
+						scissor.offset = { 0, 0 };
+						scissor.extent = swapChain.swapChainExtent;
+						vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+						//make a model view matrix for rendering the object
+						//camera position
+						glm::vec3 camPos = { 0.f,0.f,-2.f };
+
+						glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
+						//camera projection
+						glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)viewport.width / viewport.height, 0.1f, 200.0f);
+						projection[1][1] *= -1;
+						//model rotation
+						glm::mat4 model = glm::rotate(glm::mat4{ 1.0f }, glm::radians((float)glfwGetTime() * 10.f), glm::vec3(0, 1, 0));
+
+						//calculate final mesh matrix
+						glm::mat4 mesh_matrix = projection * view * model;
+
+						MeshPushConstants constants;
+						constants.transform = mesh_matrix;
+
+						//upload the matrix to the GPU via push constants
+						vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
+
+
+						VkDeviceSize offset = 0;
+						vkCmdBindVertexBuffers(commandBuffer, 0, 1, &cube.buffer.buffer, &offset);
+
+						vkCmdDraw(commandBuffer, 36, 1, 0, 0);
+
+						vkCmdEndRenderPass(commandBuffer);
+
+						if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+							throw std::runtime_error("failed to record command buffer!");
+						}
+					});
 				current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 				glfwPollEvents();
 			}
@@ -480,6 +688,8 @@ private:
 	}
 
 	void cleanup() {
+		cube.cleanup(allocator);
+
 		for (auto& frame : frames)
 			frame.cleanup(device);
 
@@ -491,6 +701,9 @@ private:
 		vkDestroyRenderPass(device, renderPass, nullptr);
 
 		swapChain.cleanupSwapChain(device);
+
+		vmaDestroyAllocator(allocator);
+
 		vkDestroyDevice(device, nullptr);
 
 		if (enableValidationLayers) {
@@ -516,7 +729,7 @@ private:
 		appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
 		appInfo.pEngineName = "No Engine";
 		appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-		appInfo.apiVersion = VK_API_VERSION_1_0;
+		appInfo.apiVersion = APP_VK_API_VERSION;
 
 		VkInstanceCreateInfo createInfo{};
 		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -550,7 +763,8 @@ private:
 		createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
 		//VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT
 		createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-		createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+		createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+			VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 		createInfo.pfnUserCallback = debugCallback;
 	}
 
@@ -639,6 +853,19 @@ private:
 		vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
 	}
 
+	void mCreateVmaAllocator() {
+		VmaAllocatorCreateInfo allocatorCreateInfo = {};
+		allocatorCreateInfo.vulkanApiVersion = APP_VK_API_VERSION;
+		allocatorCreateInfo.physicalDevice = physicalDevice;
+		allocatorCreateInfo.device = device;
+		allocatorCreateInfo.instance = instance;
+		allocatorCreateInfo.pVulkanFunctions = nullptr;
+
+		if (vmaCreateAllocator(&allocatorCreateInfo, &allocator) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create vma allocator");
+		}
+	}
+
 	void createCommandPool() {
 		QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
 
@@ -717,8 +944,12 @@ private:
 
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-		vertexInputInfo.vertexBindingDescriptionCount = 0;
-		vertexInputInfo.vertexAttributeDescriptionCount = 0;
+		auto bindingDescription = Vertex::getBindingDescription();
+		auto attributeDescriptions = Vertex::getAttributeDescriptions();
+		vertexInputInfo.vertexBindingDescriptionCount = 1;
+		vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+		vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+		vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
 		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -737,7 +968,7 @@ private:
 		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 		rasterizer.lineWidth = 1.0f;
 		rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-		rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 		rasterizer.depthBiasEnable = VK_FALSE;
 
 		VkPipelineMultisampleStateCreateInfo multisampling{};
@@ -769,10 +1000,20 @@ private:
 		dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
 		dynamicState.pDynamicStates = dynamicStates.data();
 
+		//setup push constants
+		VkPushConstantRange push_constant;
+		//this push constant range starts at the beginning
+		push_constant.offset = 0;
+		//this push constant range takes up the size of a MeshPushConstants struct
+		push_constant.size = sizeof(MeshPushConstants);
+		//this push constant range is accessible only in the vertex shader
+		push_constant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 		pipelineLayoutInfo.setLayoutCount = 0;
-		pipelineLayoutInfo.pushConstantRangeCount = 0;
+		pipelineLayoutInfo.pushConstantRangeCount = 1;
+		pipelineLayoutInfo.pPushConstantRanges = &push_constant;
 
 		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create pipeline layout!");
@@ -872,7 +1113,7 @@ private:
 		else {
 			int width, height;
 			glfwGetFramebufferSize(window, &width, &height);
-			VkExtent2D actualExtent =  VkExtent2D{
+			VkExtent2D actualExtent = VkExtent2D{
 				static_cast<uint32_t>(width),
 				static_cast<uint32_t>(height)
 			};
@@ -899,7 +1140,7 @@ private:
 		auto swapCapabilities = querySwapChainSupport(physicalDevice);
 		auto swapChainFormat = chooseSwapSurfaceFormat(swapCapabilities.formats);
 		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
-		
+
 		if (oldSwapChainFormat != swapChainFormat.format) {
 			//Recreate renderpass
 		}
