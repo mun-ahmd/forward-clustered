@@ -3,6 +3,7 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_FORCE_LEFT_HANDED
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -249,30 +250,34 @@ private:
 
 };
 
-struct Vertex {
-	glm::vec3 pos;
-	glm::vec3 normal;
-
+struct VertexInputDescription {
+	//helper class to describe vertex input
+	//limits usable vertex type to a single type for the application
+	//eases creating pipelines
 	static VkVertexInputBindingDescription getBindingDescription() {
 		VkVertexInputBindingDescription bindingDescription{};
 		bindingDescription.binding = 0;
-		bindingDescription.stride = sizeof(Vertex);
+		bindingDescription.stride = sizeof(Vertex3);
 		bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 		return bindingDescription;
 	}
 
-	static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
-		std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+	static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
+		std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
 		attributeDescriptions[0].binding = 0;
 		attributeDescriptions[0].location = 0;
 		attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-		attributeDescriptions[0].offset = offsetof(Vertex, pos);
+		attributeDescriptions[0].offset = offsetof(Vertex3, pos);
 
 		attributeDescriptions[1].binding = 0;
 		attributeDescriptions[1].location = 1;
 		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-		attributeDescriptions[1].offset = offsetof(Vertex, normal);
+		attributeDescriptions[1].offset = offsetof(Vertex3, norm);
 
+		attributeDescriptions[2].binding = 0;
+		attributeDescriptions[2].location = 2;
+		attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+		attributeDescriptions[2].offset = offsetof(Vertex3, uv);
 		return attributeDescriptions;
 	}
 };
@@ -308,52 +313,53 @@ public:
 };
 
 const std::vector<float> vertices = {
-	-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
-	 0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
-	 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
-	 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
-	-0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
-	-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+	// positions          // normals           // texture coords
+	-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
+	 0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  0.0f,
+	 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
+	 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
+	-0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  1.0f,
+	-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
 
-	-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
-	 0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
-	 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
-	 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
-	-0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
-	-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+	-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
+	 0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  0.0f,
+	 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,
+	 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,
+	-0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  1.0f,
+	-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
 
-	-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
-	-0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
-	-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
-	-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
-	-0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
-	-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+	-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+	-0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
+	-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+	-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+	-0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
+	-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
 
-	 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
-	 0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
-	 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
-	 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
-	 0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
-	 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+	 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+	 0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
+	 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+	 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+	 0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
+	 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
 
-	-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
-	 0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
-	 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
-	 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
-	-0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
-	-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+	-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
+	 0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  1.0f,
+	 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
+	 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
+	-0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  0.0f,
+	-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
 
-	-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
-	 0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
-	 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
-	 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
-	-0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
-	-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f
+	-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f,
+	 0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  1.0f,
+	 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
+	 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
+	-0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f,
+	-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f
 };
 
-std::vector<Vertex> getCubeVertices() {
-	auto start = reinterpret_cast<const Vertex*>(vertices.data());
-	return std::vector<Vertex>(start, start + vertices.size());
+std::vector<Vertex3> getCubeVertices() {
+	auto start = reinterpret_cast<const Vertex3*>(vertices.data());
+	return std::vector<Vertex3>(start, start + vertices.size());
 }
 
 struct BufferCopyInfo {
@@ -419,15 +425,15 @@ struct MeshPushConstants {
 	glm::mat4 transform;
 };
 
-class Cube {
+class Mesh {
 public:
 	Buffer vertexBuffer;
 	Buffer indexBuffer;
 	uint32_t numIndices;
-	Cube() = default;
-	Cube(const VkDevice device, const VkCommandPool commandPool, const VkQueue queue, VmaAllocator allocator) {
-		const auto vertexData = getCubeVertices();
-		size_t vertexDataSize = vertexData.size() * sizeof(Vertex);
+	Mesh() = default;
+	Mesh(const VkDevice device, const VkCommandPool commandPool, const VkQueue queue, VmaAllocator allocator, MeshData<Vertex3>& meshData) {
+		const auto& vertexData = meshData.vertices;
+		size_t vertexDataSize = vertexData.size() * sizeof(Vertex3);
 		this->vertexBuffer = Buffer(
 			allocator, vertexDataSize,
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -437,9 +443,7 @@ public:
 		Buffer vertexStagingBuffer = prepareStagingBuffer(allocator, vertexData.data(), vertexDataSize);
 
 
-		std::vector<uint16_t> indexData(36);
-		for (int i = 0; i < 36; ++i)
-			indexData[i] = i;
+		std::vector<uint16_t> indexData(meshData.indices.begin(), meshData.indices.end());
 		size_t indexDataSize = indexData.size() * sizeof(uint16_t);
 		this->numIndices = indexData.size();
 		this->indexBuffer = Buffer(
@@ -460,6 +464,7 @@ public:
 	}
 	void cleanup(VmaAllocator allocator) {
 		vertexBuffer.cleanup(allocator);
+		indexBuffer.cleanup(allocator);
 	}
 };
 
@@ -473,7 +478,7 @@ public:
 		const VkRenderPass& renderPass;
 		const VkPipelineLayout& graphicsPipelineLayout;
 		const VkPipeline& graphicsPipeline;
-		const Cube& cube;
+		const Mesh& cube;
 	};
 
 	VkCommandBuffer commandBuffer;
@@ -599,7 +604,7 @@ private:
 
 	shaderc::Compiler compiler = shaderc::Compiler();
 
-	Cube cube;
+	std::vector<Mesh> meshes;
 
 	void initWindow() {
 		glfwInit();
@@ -631,7 +636,12 @@ private:
 		createCommandPool();
 		for (auto& frame : frames)
 			frame = Frame(device, commandPool);
-		cube = Cube(device, commandPool, graphicsQueue, allocator);
+		
+		auto loadedModel = loadGLTF("3DModels/lieutenantHead/lieutenantHead.gltf").value();
+		meshes.reserve(loadedModel.meshes.size());
+		for (auto& meshData : loadedModel.meshes) {
+			meshes.push_back(Mesh(device, commandPool, graphicsQueue, allocator, meshData.first));
+		}
 	}
 
 	void mainLoop() {
@@ -680,12 +690,11 @@ private:
 
 						//make a model view matrix for rendering the object
 						//camera position
-						glm::vec3 camPos = { 0.f,0.f,-2.f };
+						glm::vec3 camPos = { 0.f,0.f,-1.f };
 
-						glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
+						glm::mat4 view = glm::lookAt(camPos, glm::vec3(0.0), glm::vec3(0, 1, 0));
 						//camera projection
 						glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)viewport.width / viewport.height, 0.1f, 200.0f);
-						projection[1][1] *= -1;
 						//model rotation
 						glm::mat4 model = glm::rotate(glm::mat4{ 1.0f }, glm::radians((float)glfwGetTime() * 10.f), glm::vec3(0, 1, 0));
 
@@ -700,11 +709,11 @@ private:
 
 
 						VkDeviceSize offset = 0;
-						vkCmdBindVertexBuffers(commandBuffer, 0, 1, &cube.vertexBuffer.buffer, &offset);
-						vkCmdBindIndexBuffer(commandBuffer, cube.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
-
-						vkCmdDrawIndexed(commandBuffer, 36, 1, 0, 0, 0);
-						//vkCmdDraw(commandBuffer, 36, 1, 0, 0);
+						for (auto& mesh : meshes) {
+							vkCmdBindVertexBuffers(commandBuffer, 0, 1, &mesh.vertexBuffer.buffer, &offset);
+							vkCmdBindIndexBuffer(commandBuffer, mesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+							vkCmdDrawIndexed(commandBuffer, mesh.numIndices, 1, 0, 0, 0);
+						}
 
 						vkCmdEndRenderPass(commandBuffer);
 
@@ -724,7 +733,8 @@ private:
 	}
 
 	void cleanup() {
-		cube.cleanup(allocator);
+		for(auto& mesh : meshes)
+			mesh.cleanup(allocator);
 
 		for (auto& frame : frames)
 			frame.cleanup(device);
@@ -980,8 +990,8 @@ private:
 
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-		auto bindingDescription = Vertex::getBindingDescription();
-		auto attributeDescriptions = Vertex::getAttributeDescriptions();
+		auto bindingDescription = VertexInputDescription::getBindingDescription();
+		auto attributeDescriptions = VertexInputDescription::getAttributeDescriptions();
 		vertexInputInfo.vertexBindingDescriptionCount = 1;
 		vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
 		vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
@@ -1325,10 +1335,6 @@ private:
 
 int main() {
 	HelloTriangleApplication app;
-
-	auto loaded = loadGLTF("3DModels/lieutenantHead/lieutenantHead.gltf");
-	auto model = loaded.value();
-
 	try {
 		app.run();
 	}

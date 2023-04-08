@@ -1,4 +1,6 @@
 ﻿  VulkanStartingOut.cpp
-C:\Users\munee\source\repos\VulkanStartingOut\VulkanStartingOut.cpp(716,42): warning C4101: 'err': unreferenced local variable
-glfw3.lib(win32_joystick.obj) : warning LNK4099: PDB 'glfw.pdb' was not found with 'glfw3.lib(win32_joystick.obj)' or at 'C:\Users\munee\source\repos\VulkanStartingOut\x64\Debug\glfw.pdb'; linking object as if no debug info
+C:\Users\munee\source\repos\VulkanStartingOut\VulkanStartingOut.cpp(448,1): warning C4267: '=': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\munee\source\repos\VulkanStartingOut\VulkanStartingOut.cpp(727,42): warning C4101: 'err': unreferenced local variable
+C:\Users\munee\source\repos\VulkanStartingOut\Include\glm\ext\matrix_transform.inl(147,1): warning C4305: 'if': truncation from 'int' to 'bool'
+C:\Users\munee\source\repos\VulkanStartingOut\VulkanStartingOut.cpp(695): message : see reference to function template instantiation 'glm::mat<4,4,glm::f32,glm::packed_highp> glm::lookAt<float,glm::packed_highp>(const glm::vec<3,float,glm::packed_highp> &,const glm::vec<3,float,glm::packed_highp> &,const glm::vec<3,float,glm::packed_highp> &)' being compiled
   VulkanStartingOut.vcxproj -> C:\Users\munee\source\repos\VulkanStartingOut\x64\Debug\VulkanStartingOut.exe
