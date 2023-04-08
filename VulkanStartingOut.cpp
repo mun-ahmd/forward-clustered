@@ -21,6 +21,8 @@
 #include <filesystem>
 #include <functional>
 
+#include "MeshLoader.h"
+
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
@@ -392,9 +394,6 @@ void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuf
 struct MeshPushConstants {
 	glm::mat4 transform;
 };
-
-static MeshPushConstants tempPushConstant;
-
 
 class Cube {
 public:
@@ -1289,6 +1288,9 @@ private:
 
 int main() {
 	HelloTriangleApplication app;
+
+	auto loaded = loadGLTF("3DModels/lieutenantHead/lieutenantHead.gltf");
+	auto model = loaded.value();
 
 	try {
 		app.run();
