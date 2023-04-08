@@ -356,7 +356,15 @@ std::vector<Vertex> getCubeVertices() {
 	return std::vector<Vertex>(start, start + vertices.size());
 }
 
-void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
+struct BufferCopyInfo {
+	VkBuffer src;
+	VkBuffer dst;
+	VkDeviceSize size;
+	BufferCopyInfo() = default;
+	BufferCopyInfo(VkBuffer src, VkBuffer dst, VkDeviceSize size) : src(src), dst(dst), size(size) {}
+};
+
+void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, std::vector<BufferCopyInfo> buffers) {
 	VkCommandBufferAllocateInfo allocInfo{};
 	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -372,11 +380,13 @@ void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuf
 
 	vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
-	VkBufferCopy copyRegion{};
-	copyRegion.srcOffset = 0; // Optional
-	copyRegion.dstOffset = 0; // Optional
-	copyRegion.size = size;
-	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+	for (auto copyInfo : buffers) {
+		VkBufferCopy copyRegion{};
+		copyRegion.srcOffset = 0; // Optional
+		copyRegion.dstOffset = 0; // Optional
+		copyRegion.size = copyInfo.size;
+		vkCmdCopyBuffer(commandBuffer, copyInfo.src, copyInfo.dst, 1, &copyRegion);
+	}
 
 	vkEndCommandBuffer(commandBuffer);
 
@@ -391,40 +401,65 @@ void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuf
 	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
+Buffer prepareStagingBuffer(VmaAllocator allocator, const void* data, size_t dataSize) {
+	Buffer stagingBuffer = Buffer(
+		allocator, dataSize,
+		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+		VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+	);
+	void* stagingBufferData;
+	vmaMapMemory(allocator, stagingBuffer.allocation, &stagingBufferData);
+	memcpy(stagingBufferData, data, dataSize);
+	vmaUnmapMemory(allocator, stagingBuffer.allocation);
+	return stagingBuffer;
+}
+
 struct MeshPushConstants {
 	glm::mat4 transform;
 };
 
 class Cube {
 public:
-	Buffer buffer;
+	Buffer vertexBuffer;
+	Buffer indexBuffer;
+	uint32_t numIndices;
 	Cube() = default;
 	Cube(const VkDevice device, const VkCommandPool commandPool, const VkQueue queue, VmaAllocator allocator) {
 		const auto vertexData = getCubeVertices();
 		size_t vertexDataSize = vertexData.size() * sizeof(Vertex);
-		Buffer stagingBuffer = Buffer(
-			allocator, vertexDataSize,
-			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-		);
-		void* stagingBufferData;
-		vmaMapMemory(allocator, stagingBuffer.allocation, &stagingBufferData);
-		memcpy(stagingBufferData, vertexData.data(), vertexData.size() * sizeof(Vertex));
-		vmaUnmapMemory(allocator, stagingBuffer.allocation);
-
-		this->buffer = Buffer(
+		this->vertexBuffer = Buffer(
 			allocator, vertexDataSize,
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			(VmaAllocationCreateFlagBits)0,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+		);
+		Buffer vertexStagingBuffer = prepareStagingBuffer(allocator, vertexData.data(), vertexDataSize);
 
-		copyBuffer(device, commandPool, queue, stagingBuffer.buffer, this->buffer.buffer, vertexDataSize);
 
-		stagingBuffer.cleanup(allocator);
+		std::vector<uint16_t> indexData(36);
+		for (int i = 0; i < 36; ++i)
+			indexData[i] = i;
+		size_t indexDataSize = indexData.size() * sizeof(uint16_t);
+		this->numIndices = indexData.size();
+		this->indexBuffer = Buffer(
+			allocator, indexDataSize,
+			VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			(VmaAllocationCreateFlagBits)0,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+		);
+		Buffer indexStagingBuffer = prepareStagingBuffer(allocator, indexData.data(), indexDataSize);
+
+		BufferCopyInfo vBufferCI(vertexStagingBuffer.buffer, vertexBuffer.buffer, vertexDataSize);
+		BufferCopyInfo iBufferCI(indexStagingBuffer.buffer, indexBuffer.buffer, indexDataSize);
+
+		copyBuffer(device, commandPool, queue, {vBufferCI, iBufferCI});
+		
+		vertexStagingBuffer.cleanup(allocator);
+		indexStagingBuffer.cleanup(allocator);
 	}
 	void cleanup(VmaAllocator allocator) {
-		buffer.cleanup(allocator);
+		vertexBuffer.cleanup(allocator);
 	}
 };
 
@@ -665,9 +700,11 @@ private:
 
 
 						VkDeviceSize offset = 0;
-						vkCmdBindVertexBuffers(commandBuffer, 0, 1, &cube.buffer.buffer, &offset);
+						vkCmdBindVertexBuffers(commandBuffer, 0, 1, &cube.vertexBuffer.buffer, &offset);
+						vkCmdBindIndexBuffer(commandBuffer, cube.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
 
-						vkCmdDraw(commandBuffer, 36, 1, 0, 0);
+						vkCmdDrawIndexed(commandBuffer, 36, 1, 0, 0, 0);
+						//vkCmdDraw(commandBuffer, 36, 1, 0, 0);
 
 						vkCmdEndRenderPass(commandBuffer);
 
