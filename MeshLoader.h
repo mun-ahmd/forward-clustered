@@ -1,5 +1,6 @@
 #pragma once
 #include <any>
+#include <glm/glm.hpp>
 
 template<typename T>
 struct MeshData {
@@ -44,7 +45,12 @@ struct MaterialPBR {
 };
 
 struct ModelData {
-	std::vector<std::pair<MeshData<Vertex3>, int>> meshes;
+	struct {
+		//all of same length
+		std::vector<MeshData<Vertex3>> meshes;
+		std::vector<glm::mat4> transforms;
+		std::vector<int> matIndex;
+	} meshData;
 	std::vector<MaterialPBR> materials;
 };
 

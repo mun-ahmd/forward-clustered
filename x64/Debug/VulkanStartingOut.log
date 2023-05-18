@@ -1,6 +1,15 @@
 ﻿  VulkanStartingOut.cpp
-C:\Users\munee\source\repos\VulkanStartingOut\VulkanStartingOut.cpp(448,1): warning C4267: '=': conversion from 'size_t' to 'uint32_t', possible loss of data
-C:\Users\munee\source\repos\VulkanStartingOut\VulkanStartingOut.cpp(727,42): warning C4101: 'err': unreferenced local variable
-C:\Users\munee\source\repos\VulkanStartingOut\Include\glm\ext\matrix_transform.inl(147,1): warning C4305: 'if': truncation from 'int' to 'bool'
-C:\Users\munee\source\repos\VulkanStartingOut\VulkanStartingOut.cpp(695): message : see reference to function template instantiation 'glm::mat<4,4,glm::f32,glm::packed_highp> glm::lookAt<float,glm::packed_highp>(const glm::vec<3,float,glm::packed_highp> &,const glm::vec<3,float,glm::packed_highp> &,const glm::vec<3,float,glm::packed_highp> &)' being compiled
+C:\Users\munee\source\repos\VulkanStartingOut\cameraObj.h(90,17): warning C4099: 'GLFWwindow': type name first seen using 'struct' now seen using 'class'
+C:\Users\munee\source\repos\VulkanStartingOut\Include\GLFW\glfw3.h(1157): message : see declaration of 'GLFWwindow'
+C:\Users\munee\source\repos\VulkanStartingOut\core.hpp(722,1): warning C4267: '=': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\munee\source\repos\VulkanStartingOut\resources.hpp(318,1): warning C4267: '=': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\munee\source\repos\VulkanStartingOut\VulkanStartingOut.cpp(248,1): warning C4267: '=': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\munee\source\repos\VulkanStartingOut\VulkanStartingOut.cpp(378,42): warning C4101: 'err': unreferenced local variable
+C:\Users\munee\source\repos\VulkanStartingOut\resources.hpp(202,1): warning C4267: '=': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\munee\source\repos\VulkanStartingOut\resources.hpp(197): message : while compiling class template member function 'void Resource<MaterialInfo>::init(VulkanCore,uint32_t)'
+C:\Users\munee\source\repos\VulkanStartingOut\VulkanStartingOut.cpp(267): message : see reference to function template instantiation 'void Resource<MaterialInfo>::init(VulkanCore,uint32_t)' being compiled
+C:\Users\munee\source\repos\VulkanStartingOut\resources.hpp(266): message : see reference to class template instantiation 'Resource<MaterialInfo>' being compiled
+glfw3.lib(input.obj) : warning LNK4099: PDB 'glfw.pdb' was not found with 'glfw3.lib(input.obj)' or at 'C:\Users\munee\source\repos\VulkanStartingOut\x64\Debug\glfw.pdb'; linking object as if no debug info
+glfw3.lib(monitor.obj) : warning LNK4099: PDB 'glfw.pdb' was not found with 'glfw3.lib(monitor.obj)' or at 'C:\Users\munee\source\repos\VulkanStartingOut\x64\Debug\glfw.pdb'; linking object as if no debug info
+glfw3.lib(window.obj) : warning LNK4099: PDB 'glfw.pdb' was not found with 'glfw3.lib(window.obj)' or at 'C:\Users\munee\source\repos\VulkanStartingOut\x64\Debug\glfw.pdb'; linking object as if no debug info
   VulkanStartingOut.vcxproj -> C:\Users\munee\source\repos\VulkanStartingOut\x64\Debug\VulkanStartingOut.exe

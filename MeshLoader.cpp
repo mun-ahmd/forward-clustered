@@ -9,8 +9,12 @@
 #include <algorithm>
 #include <any>
 #include <filesystem>
+#include <set>
 #include <optional>
 #include "glm/glm.hpp"
+#include "glm/gtc/matrix_transform.hpp"
+#include "glm/gtc/quaternion.hpp"
+#include <glm/gtc/type_ptr.hpp>
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "json.hpp"
@@ -61,14 +65,14 @@ std::vector<std::pair<MeshData<Vertex3>, int>> loadMeshes(Model& model) {
             for (int i = 0; i < 3; ++i) {
                 if (primitive.attributes.find(required[i]) ==
                     primitive.attributes.end()) {
+                    throw std::runtime_error("Could not find required attribute in primitive");
                     //! panic
-                    continue;
                 }
                 accessorsInfo[i] =
                     loadAccessor(model, primitive.attributes[required[i]]);
-                if (accessorsInfo[i].accessor.type != TINYGLTF_COMPONENT_TYPE_FLOAT) {
+                if (accessorsInfo[i].accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) {
+                    throw std::runtime_error("Primitive accessor component type not supported");
                     //! panic
-                    continue;
                 }
             }
             unsigned char* position = accessorsInfo[0].buffer.data.data() +
@@ -222,6 +226,36 @@ std::vector<MaterialPBR> loadMaterials(std::string gltfFile) {
     return materials;
 }
 
+inline void appendMesh(ModelData* modelData, MeshData<Vertex3> mesh, int matIndex, glm::mat4 transform) {
+    modelData->meshData.meshes.push_back(mesh);
+    modelData->meshData.matIndex.push_back(matIndex);
+    modelData->meshData.transforms.push_back(transform);
+}
+
+glm::mat4 getNodeTransform(Node& node) {
+    glm::mat4 value;
+    if (node.matrix.size() == 16)
+        value = glm::make_mat4(node.matrix.data());
+    else {
+        glm::vec3 translation = glm::vec3(0.f);
+        glm::quat rotation = glm::quat(glm::vec3(0.f, 0.f , 0.f));
+        glm::vec3 scale = glm::vec3(1.f);
+
+        if (node.translation.size() == 3)
+            translation = glm::make_vec3(node.translation.data());
+        if (node.rotation.size() == 4)
+            rotation = glm::quat(node.rotation[3], node.rotation[0], node.rotation[1], node.rotation[2]);
+        if (node.scale.size() == 3)
+            scale = glm::make_vec3(node.scale.data());
+
+        //TRS order
+        value =
+            glm::translate(glm::mat4(1.f), translation)
+            * glm::mat4_cast(rotation)
+            * glm::scale(glm::mat4(1.f), scale);
+    }
+    return value;
+}
 
 std::optional<ModelData> loadGLTF(const char* filepath) {
     Model model;
@@ -250,10 +284,21 @@ std::optional<ModelData> loadGLTF(const char* filepath) {
         std::cerr << "glTF: Failed to parse file: " << filepath << " \n";
         return std::nullopt;
     }
-    auto loaded = loadMeshes(model);
+    auto loadedMeshes = loadMeshes(model);
+    std::set<int> addedMeshes;
+
     ModelData modelData;
-    modelData.meshes = std::move(loaded);
     modelData.materials = loadMaterials(filepath);
+
+    modelData.meshData.meshes.reserve(loadedMeshes.size());
+    modelData.meshData.transforms.reserve(loadedMeshes.size());
+    modelData.meshData.matIndex.reserve(loadedMeshes.size());
+    for (auto& node : model.nodes) {
+        if (node.mesh != -1 && addedMeshes.find(node.mesh) == addedMeshes.end()) {
+            appendMesh(&modelData, loadedMeshes[node.mesh].first, loadedMeshes[node.mesh].second, getNodeTransform(node));
+            addedMeshes.insert(node.mesh);
+        }
+    }
     return modelData;
 }
 

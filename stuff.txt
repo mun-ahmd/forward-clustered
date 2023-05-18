@@ -1,0 +1,31 @@
+All systems have atleast 4 descripter slots per pipeline
+
+so it is a good idea to split descripter slots on the basis of frequency of change
+
+you could use:
+	slot 0 - for global data
+	slot 1 - for per render pass data
+	slot 2 - per mesh data
+	slot 3 - per material data
+	
+Having multiple frames per flight reduces latency and screen tearing (double and triple buffering)
+however alongside having multiple command buffers so that one frame can record its command buffer while the other is executing
+(command buffers cannot be modified until they stop executing)
+
+You also need to have some buffers seperate for each frame since they are modified from the cpu
+an example would be a uniform buffer that stores the camera data. You would write to this every frame and thus the second frame in flight would need to modify it while the first one is executing.
+
+so obv there is a need for some changes to the current Frame class
+
+well one plan is to create a frame execution class that contains all the instructions for the intialization and execution of a frame
+all three frames need to do the exact same thing so they will just run seperate instances of the execution
+
+frame execution class will initialize the cpu to gpu buffers (aka the buffers that can change between frames)
+
+But first and foremost the biggest current need is to better abstract descriptor sets and switch to using it instead of push constants
+then the next step would be to create an abstraction for textures and then start using them through descriptor sets
+
+After all this is done we can start thinking of adding lights
+
+
+for the problem of having some data that is same for each frame and some that is not
