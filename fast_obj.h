@@ -967,6 +967,17 @@ const char* read_map(fastObjData* data, const char* ptr, fastObjTexture* map)
     ptr = skip_whitespace(ptr);
 
     /* Don't support options at present */
+    /*
+    -blendu on | off
+ 	-blendv on | off
+ 	-cc on | off
+ 	-clamp on | off
+ 	-mm base gain
+ 	-o u v w
+ 	-s u v w
+ 	-t u v w
+ 	-texres value
+    */
     if (*ptr == '-')
         return ptr;
 

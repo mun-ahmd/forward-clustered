@@ -32,6 +32,8 @@ using json = nlohmann::json;
 
 #include "MeshLoader.h"
 
+void loadOBJ(const char* filepath);
+
 struct AccessorInfo {
     Accessor accessor;
     BufferView bufferView;
@@ -299,41 +301,26 @@ std::optional<ModelData> loadGLTF(const char* filepath) {
             addedMeshes.insert(node.mesh);
         }
     }
+//    loadOBJ("3DModels/bedroom/iscv2.obj");
     return modelData;
 }
-
-
-// void modifyModelFormat(Model &model,
-//                        const std::vector<MeshData<Vertex3>> &data) {
-//    TODO COMPLETE THIS FUNCTION TO MODIFY GLTF FILE TO MAKE LOADING FASTER
-//    AFTER INITIAL LOAD
-//   int buf_index = model.buffers.size();
-//   tinygltf::Buffer meshdata;
-//   std::vector<tinygltf::BufferView> meshviews;
-//   meshviews.reserve(data.size());
-//   for (const auto &mesh : data)
-//     meshdata.data.insert(
-//         meshdata.data.end(),
-//         reinterpret_cast<const unsigned char *>(mesh.vertices.data()),
-//         reinterpret_cast<const unsigned char *>(mesh.vertices.data() +
-//                                                 mesh.vertices.size()));
-
-//   tinygltf::BufferView vertex_view;
-//   vertex_view.buffer = buf_index;
-//   vertex_view.byteLength = meshdata.data.size();
-//   vertex_view.byteOffset = 0;
-//   vertex_view.byteStride = sizeof(Vertex3);
-
-//   int view_index = model.bufferViews.size();
-
-//   tinygltf::Accessor pos_acc;
-//   pos_acc.bufferView = view_index;
-//   pos_acc.byteOffset = 0;
-//   pos_acc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
-//   pos_acc.type = TINYGLTF_TYPE_VEC3;
-
-//   tinygltf::Accessor norm_acc = pos_acc;
-//   tinygltf::Accessor uv_acc = pos_acc;
-//   uv_acc.type = TINYGLTF_TYPE_VEC2;
-
-// }
+//
+//#include "fast_obj.h"
+//void loadOBJ(const char* filepath) {
+//    auto loaded = fast_obj_read(filepath);
+//    ModelData modelData;
+//    modelData.materials.reserve(loaded->material_count);
+//    for (int i = 0; i < loaded->material_count; i++) {
+//        auto cats = loaded->materials[i];
+//        int is = &cats - &cats;
+//        MaterialPBR mat;
+//        mat.isMetallicRoughness = false;
+//        DiffuseSpecularMat dfMat;
+//        dfMat.diffuseFactor = glm::vec4(glm::make_vec3(cats.Kd), 1.0);
+//        if (cats.map_Kd.path) {
+//            dfMat.diffuseTex = cats.map_Kd.path;
+//        }
+//        modelData.materials.push_back(mat)
+////        modelData.materials.push_back();
+//    }
+//}

@@ -27,6 +27,7 @@
 #include "resources.hpp"
 
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+constexpr int lightCount = 10;
 
 //RC = Reference Counted
 template<typename T>
@@ -100,6 +101,9 @@ public:
 	RC<Buffer> matricesBuffer;
 	VkDescriptorSet globalDS;
 
+	PointLightsBuffer pointLights;
+	VkDescriptorSet pointLightsDS;
+
 	Frame() = default;
 
 	Frame(VulkanCore core, VkCommandPool commandPool) : core(core), commandBufferPool(commandPool) {
@@ -111,6 +115,8 @@ public:
 
 		commandBuffer = core->createCommandBuffer(allocInfo);
 		createGlobalDescriptorSet();
+		pointLights.init(core);
+		pointLightsDS = pointLights.createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
 		VkSemaphoreCreateInfo semaphoreInfo{};
 		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -228,8 +234,7 @@ private:
 	std::vector<uint32_t> meshMatIndices;
 	std::vector<glm::mat4> transforms;
 
-	std::vector<PointLight> pointLights;
-
+	std::vector<PointLightInfo> pointLights;
 	VkDescriptorSet materialsDescriptorSet;
 
 	//RC<Buffer> buffer;
@@ -256,6 +261,21 @@ private:
 			meshes.push_back(Mesh(core, commandPool, loadedModel.meshData.meshes[i]));
 	}
 
+	void initLights() {
+		this->pointLights.resize(lightCount);
+
+		for (auto& light : pointLights) {
+			auto rm = randomMaterial();
+			light.position = glm::normalize(glm::vec3(rm.diffuseColor));
+			light.radius = 1.0f;
+			light.color = rm.diffuseColor;
+		}
+
+		for (auto& frame : this->frames) {
+			frame.pointLights.addLights(core, commandPool, this->pointLights.data(), this->pointLights.size());
+		}
+	}
+
 	void initVulkan() {
 		core = createVulkanCore();
 		createCommandPool();
@@ -265,7 +285,9 @@ private:
 		auto swapChainFormat = chooseSwapSurfaceFormat(swapCapabilities.formats);
 		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
 		Material::init(core);
-		materialsDescriptorSet = Material::createDescriptor(core);
+		materialsDescriptorSet = Material::createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT);
+		initLights();
+
 		createRenderPass(swapChainFormat.format);
 		createGraphicsPipeline();
 		swapChain = core->createSwapChain(swapChainFormat, swapPresentMode, chooseSwapExtent(swapCapabilities.capabilities), renderPass);
@@ -325,9 +347,10 @@ private:
 
 				vkCmdBindPipeline(activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
+				VkDescriptorSet globalAndLightsSet[2] = { activeFrame.globalDS, activeFrame.pointLightsDS };
 				vkCmdBindDescriptorSets(activeFrame.commandBuffer,
 					VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-					0, 1, &activeFrame.globalDS,
+					0, 2, globalAndLightsSet,
 					0, nullptr
 				);
 
@@ -353,7 +376,7 @@ private:
 					uint32_t dynamicOffset = materials[meshMatIndices[i]]->getResourceOffset();
 					vkCmdBindDescriptorSets(
 						activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-						pipelineLayout, 1, 1, &materialsDescriptorSet, 1, &dynamicOffset
+						pipelineLayout, 2, 1, &materialsDescriptorSet, 1, &dynamicOffset
 					);
 
 					MeshPushConstants constants{ transforms[i] };
@@ -394,6 +417,23 @@ private:
 		commandPool = core->createCommandPool(poolInfo);
 	}
 
+	void createShadowRenderPass() {
+		VkAttachmentDescription colorAttachment{};
+		//maximum 32 lights with shadows rn
+		colorAttachment.format = VK_FORMAT_R32_UINT;
+		colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		VkAttachmentReference colorAttachmentRef{};
+		colorAttachmentRef.attachment = 0;
+		colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL_KHR;
+
+	}
+
 	void createRenderPass(VkFormat swapChainFormat) {
 		VkAttachmentDescription colorAttachment{};
 		colorAttachment.format = swapChainFormat;
@@ -416,7 +456,7 @@ private:
 
 		VkSubpassDependency dependency{};
 		dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-		dependency.dstSubpass = 0;
+		dependency.dstSubpass = VK_SUBPASS_EXTERNAL;
 		dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		dependency.srcAccessMask = 0;
 		dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -524,9 +564,10 @@ private:
 
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = 2;
-		VkDescriptorSetLayout layouts[2] = {
+		pipelineLayoutInfo.setLayoutCount = 3;
+		VkDescriptorSetLayout layouts[3] = {
 			core->getLayout(frames.front().globalDS),
+			core->getLayout(frames.front().pointLightsDS),
 			core->getLayout(this->materialsDescriptorSet)
 		};
 		pipelineLayoutInfo.pSetLayouts = layouts;
