@@ -1,6 +1,6 @@
-.vs/*
+.vs/
 VulkanStartingOut.vcxproj.filters
 VulkanStartingOut.vcxproj.user
 VulkanStartingOut.vcxproj
-3DModels/*
-x64/*
+3DModels/
+x64/
