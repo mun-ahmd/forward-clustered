@@ -1,0 +1,46 @@
+#version 450
+layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+// layout(set = 0, binding = 0) uniform Matrices{
+//     mat4 proj;
+//     mat4 view;
+//     mat4 projView;
+//     mat4 invProj;
+//     mat4 invView;
+// } matrices;
+
+// struct AABB{
+//     vec4 minPoint;
+//     vec4 maxPoint;
+// };
+
+// layout (std430, set = 1, binding = 1) buffer clusterAABB{
+//     AABB clusters[];
+// };
+
+// vec3 clipCoordsForIndex(uvec3 index){
+//     //index ranges from [0, localSize]
+//     vec3 unit = 1/vec3(gl_WorkGroupSize);
+//     vec3 coords = unit * index;
+//     coords = coords * 2.0 - 1.0;
+//     return coords;
+// }
+
+// vec3 clipToView(vec3 clip){
+//     vec4 res = matrices.invProj * vec4(clip, 1.0);
+//     res /= res.w;
+//     return res.xyz;
+// }
+
+void main(){
+//     uvec3 index = gl_WorkGroupID;
+//     AABB currAABB;
+//     currAABB.minPoint = vec4(clipToView(clipCoordsForIndex(index)), 1.0);
+//     currAABB.maxPoint = vec4(clipToView(clipCoordsForIndex(index + 1)), 1.0);
+//     uvec3 clusterIndex = gl_WorkGroupID * uvec3(
+//         gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_NumWorkGroups.z,
+//         gl_NumWorkGroups.y * gl_NumWorkGroups.z,
+//         1
+//     );
+//     clusters[clusterIndex.x + clusterIndex.y + clusterIndex.z] = currAABB;
+}

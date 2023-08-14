@@ -173,10 +173,84 @@ auto prepareStagingBuffer(VulkanCore core, const void* data, size_t dataSize) {
 class Image {
 public:
 	VkImage image;
+	VkFormat format;
+	VkExtent3D extent;
 	VmaAllocation allocation;
 
-	static std::shared_ptr<Image> create(VulkanCore core) {
+	static VkImageCreateInfo makeCreateInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent)
+	{
+		VkImageCreateInfo info = { };
+		info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		info.pNext = nullptr;
 
+		info.imageType = VK_IMAGE_TYPE_2D;
+
+		info.format = format;
+		info.extent = extent;
+
+		info.mipLevels = 1;
+		info.arrayLayers = 1;
+		info.samples = VK_SAMPLE_COUNT_1_BIT;
+		info.tiling = VK_IMAGE_TILING_OPTIMAL;
+		info.usage = usageFlags;
+
+		return info;
+	}
+
+	static std::shared_ptr<Image> create(
+		VulkanCore core,
+		VkImageCreateInfo imageCreateInfo, VmaAllocationCreateFlagBits vmaFlags,
+		VkMemoryPropertyFlags requiredMemoryTypeFlags = 0, VkMemoryPropertyFlags preferredMemoryTypeFlags = 0)
+	{
+		VmaAllocationCreateInfo allocationCreateInfo = {};
+		allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocationCreateInfo.flags = vmaFlags;
+		allocationCreateInfo.requiredFlags = requiredMemoryTypeFlags;
+		allocationCreateInfo.preferredFlags = preferredMemoryTypeFlags;
+
+		Image img{};
+		img.format = imageCreateInfo.format;
+		img.extent = imageCreateInfo.extent;
+		VmaAllocationInfo allocationInfo;
+		if (
+			vmaCreateImage(core->allocator, &imageCreateInfo, &allocationCreateInfo, &img.image, &img.allocation, &allocationInfo)
+			!= VK_SUCCESS
+		){
+			throw std::runtime_error("Could not create image resource!");
+		}
+		return std::shared_ptr<Image>(new Image(img),
+			[core](Image* img) {
+				vmaDestroyImage(core->allocator, img->image, img->allocation);
+				delete img;
+			});
+	}
+
+	VkImageView getView(VulkanCore core, VkImageViewCreateInfo info)
+	{
+		VkImageView view;
+		if (vkCreateImageView(core->device, &info, nullptr, &view) != VK_SUCCESS) {
+			throw std::runtime_error("Could not create image view!");
+		}
+		//have to destroy views yourself
+		return view;
+	}
+
+	VkImageView getView(VulkanCore core, VkFormat viewFormat, VkImageAspectFlags aspectFlags)
+	{
+		VkImageViewCreateInfo info = {};
+		info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		info.pNext = nullptr;
+
+		info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		info.image = image;
+		info.format = viewFormat;
+		info.subresourceRange.baseMipLevel = 0;
+		info.subresourceRange.levelCount = 1;
+		info.subresourceRange.baseArrayLayer = 0;
+		info.subresourceRange.layerCount = 1;
+		info.subresourceRange.aspectMask = aspectFlags;
+
+		return getView(core, info);
 	}
 };
 
@@ -263,7 +337,8 @@ template<class BaseInfo, class ArrayInfo>
 class IAResource {
 	//INDEFINITE ARRAY RESOURCE
 	//STORED AS SHADER STORAGE BUFFER
-	//todo change to store base info in UBO and array in storage buffer
+	//change to store base info in UBO and array in storage buffer
+	//above suggestion is bad since ubo are readonly from shaders
 public:
 	std::shared_ptr<Buffer> resourceBuf;
 	uint32_t maxLength;
@@ -369,6 +444,69 @@ public:
 
 //todo create specializations for IAResource where there is no base info or where there is no array info
 struct NullResourceInfo {};
+template<class ArrayInfo>
+class IAResource<NullResourceInfo, ArrayInfo> {
+	//INDEFINITE ARRAY RESOURCE
+	//STORED AS SHADER STORAGE BUFFER
+	//THIS SPECIALIZATION DOES NOT HAVE ANY BASE INFO
+public:
+	std::shared_ptr<Buffer> resourceBuf;
+	uint32_t maxLength;
+
+	void init(VulkanCore core, uint32_t maximumResourcesValue = 100) {
+		maxLength = maximumResourcesValue;
+		resourceBuf = Buffer::create(
+			core,
+			maxLength * sizeof(ArrayInfo),
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, 0
+		);
+	}
+
+	void updateArray(VulkanCore core, VkCommandPool pool, ArrayInfo* arrInfo, size_t arrLen, size_t arrOffset) {
+		assert(arrOffset + arrLen < maxLength);
+		auto stagingBuf = Buffer::create(
+			core,
+			arrLen * sizeof(ArrayInfo),
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			(VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT),
+			0
+		);
+		auto stagingBufMap = stagingBuf->allocation->GetMappedData();
+		memcpy(stagingBufMap, arrInfo, sizeof(ArrayInfo) * arrLen);
+		VkBufferCopy copier{};
+		copier.srcOffset = 0;
+		copier.dstOffset = arrOffset * sizeof(ArrayInfo);
+		copier.size = arrLen * sizeof(ArrayInfo);
+		copyBuffer(core, pool, { BufferCopyInfo(stagingBuf->buffer, resourceBuf->buffer, copier) });
+	}
+
+	VkDescriptorSet createDescriptor(VulkanCore core, VkShaderStageFlags shaderStageFlags) {
+		//todo update --> done
+		//todo test
+		VkDescriptorSetLayoutBinding binding{};
+		binding.binding = 0;
+		binding.descriptorCount = 1;
+		binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		binding.stageFlags = shaderStageFlags;
+		auto descriptor = core->createDescriptorSet({ binding });
+
+		VkDescriptorBufferInfo inf{};
+		inf.buffer = resourceBuf->buffer;
+		inf.offset = 0;
+		inf.range = sizeof(ArrayInfo) * this->maxLength;
+
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		write.dstSet = descriptor;
+		write.dstBinding = 0;
+		write.pBufferInfo = &inf;
+
+		vkUpdateDescriptorSets(core->device, 1, &write, 0, nullptr);
+		return descriptor;
+	}
+};
 
 struct MaterialInfo {
 	glm::vec4 diffuseColor;
@@ -413,7 +551,6 @@ public:
 	}
 };
 
-
 class Mesh {
 public:
 	std::shared_ptr<Buffer> vertexBuffer;
@@ -452,4 +589,190 @@ public:
 
 		copyBuffer(core, commandPool, { vBufferCI, iBufferCI });
 	}
+};
+
+class SwapChain {
+public:
+	VkSwapchainKHR swapChain;
+	std::vector<VkImage> swapChainImages;
+	VkFormat swapChainImageFormat;
+	VkExtent2D swapChainExtent;
+	std::vector<VkImageView> swapChainImageViews;
+	std::shared_ptr<Image> depthImage;
+	VkImageView depthImageView;
+	std::vector<VkFramebuffer> swapChainFramebuffers;
+	uint32_t framesInFlight = 0;
+	VulkanCore core;
+
+	SwapChain() = default;
+	SwapChain(
+		VulkanCore core, VkSurfaceFormatKHR surfaceFormat, VkPresentModeKHR presentMode, VkExtent2D extent,
+		const VkRenderPass& renderPass) : core(core) {
+		createSwapChain(core->findQueueFamilies(), core->querySwapChainSupport(), surfaceFormat, presentMode, extent);
+		createImageViews(core->device);
+		createFramebuffers(core->device, renderPass);
+	}
+
+	void cleanupSwapChain() {
+		for (auto imageView : swapChainImageViews) {
+			vkDestroyImageView(core->device, imageView, nullptr);
+		}
+		vkDestroyImageView(core->device, depthImageView, nullptr);
+		vkDestroySwapchainKHR(core->device, swapChain, nullptr);
+	}
+
+	void cleanupFramebuffers() {
+		for (auto framebuffer : swapChainFramebuffers) {
+			vkDestroyFramebuffer(core->device, framebuffer, nullptr);
+		}
+	}
+
+	uint32_t acquireNextImage(const VkDevice& device, const VkSemaphore& imageAvailableSemaphore) {
+		uint32_t imageIndex;
+		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+			throw std::runtime_error("OutOfDateSwapchain");
+		}
+		else if (result != VK_SUCCESS) {
+			throw std::runtime_error("failed to acquire swap chain image!");
+		}
+		framesInFlight++;
+		return imageIndex;
+	}
+
+	void present(const VkQueue& presentQueue, const VkSemaphore* signalSemaphores, uint32_t imageIndex) {
+		VkPresentInfoKHR presentInfo{};
+		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+
+		presentInfo.waitSemaphoreCount = 1;
+		presentInfo.pWaitSemaphores = signalSemaphores;
+
+		VkSwapchainKHR swapChains[] = { swapChain };
+		presentInfo.swapchainCount = 1;
+		presentInfo.pSwapchains = swapChains;
+		presentInfo.pImageIndices = &imageIndex;
+		presentInfo.pResults = nullptr; // Optional
+
+		VkResult result = vkQueuePresentKHR(presentQueue, &presentInfo);
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+			throw OutOfDateSwapChainError();
+		}
+		else if (result != VK_SUCCESS) {
+			throw std::runtime_error("failed to present swap chain image!");
+		}
+		framesInFlight--;
+	}
+
+private:
+	void createSwapChain(
+		QueueFamilyIndices indices,
+		SwapChainSupportDetails swapChainSupport, VkSurfaceFormatKHR surfaceFormat, VkPresentModeKHR presentMode, VkExtent2D extent) {
+		uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
+		if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
+			imageCount = swapChainSupport.capabilities.maxImageCount;
+		}
+
+		VkSwapchainCreateInfoKHR createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+		createInfo.surface = core->surface;
+
+		createInfo.minImageCount = imageCount;
+		createInfo.imageFormat = surfaceFormat.format;
+		createInfo.imageColorSpace = surfaceFormat.colorSpace;
+		createInfo.imageExtent = extent;
+		createInfo.imageArrayLayers = 1;
+		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+		uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
+
+		if (indices.graphicsFamily != indices.presentFamily) {
+			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+			createInfo.queueFamilyIndexCount = 2;
+			createInfo.pQueueFamilyIndices = queueFamilyIndices;
+		}
+		else {
+			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		}
+
+		createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
+		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+		createInfo.presentMode = presentMode;
+		createInfo.clipped = VK_TRUE;
+
+		createInfo.oldSwapchain = VK_NULL_HANDLE;
+
+		if (vkCreateSwapchainKHR(core->device, &createInfo, nullptr, &swapChain) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create swap chain!");
+		}
+
+		vkGetSwapchainImagesKHR(core->device, swapChain, &imageCount, nullptr);
+		swapChainImages.resize(imageCount);
+		vkGetSwapchainImagesKHR(core->device, swapChain, &imageCount, swapChainImages.data());
+
+		swapChainImageFormat = surfaceFormat.format;
+		swapChainExtent = extent;
+
+		VmaAllocationCreateInfo allocationCI{};
+
+		depthImage = Image::create(
+			core,
+			Image::makeCreateInfo(
+				core->findDepthFormat(),
+				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+				VkExtent3D{ swapChainExtent.width, swapChainExtent.height, 1 }
+			),
+			VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT
+		);
+	}
+
+	void createImageViews(const VkDevice& device) {
+		swapChainImageViews.resize(swapChainImages.size());
+
+		for (size_t i = 0; i < swapChainImages.size(); i++) {
+			VkImageViewCreateInfo createInfo{};
+			createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			createInfo.image = swapChainImages[i];
+			createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			createInfo.format = swapChainImageFormat;
+			createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			createInfo.subresourceRange.baseMipLevel = 0;
+			createInfo.subresourceRange.levelCount = 1;
+			createInfo.subresourceRange.baseArrayLayer = 0;
+			createInfo.subresourceRange.layerCount = 1;
+
+			if (vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS) {
+				throw std::runtime_error("failed to create image views!");
+			}
+		}
+
+		depthImageView = depthImage->getView(core, depthImage->format, VK_IMAGE_ASPECT_DEPTH_BIT);
+	}
+
+	void createFramebuffers(const VkDevice& device, const VkRenderPass& renderPass) {
+		swapChainFramebuffers.resize(swapChainImageViews.size());
+		for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+			VkImageView attachments[2] = {
+				swapChainImageViews[i],
+				depthImageView
+			};
+
+			VkFramebufferCreateInfo framebufferInfo{};
+			framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			framebufferInfo.renderPass = renderPass;
+			framebufferInfo.attachmentCount = 2;
+			framebufferInfo.pAttachments = attachments;
+			framebufferInfo.width = swapChainExtent.width;
+			framebufferInfo.height = swapChainExtent.height;
+			framebufferInfo.layers = 1;
+
+			if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
+				throw std::runtime_error("failed to create framebuffer!");
+			}
+		}
+	}
+
 };
