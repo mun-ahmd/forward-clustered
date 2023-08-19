@@ -1,14 +1,6 @@
 #version 450
 layout (local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) uniform Matrices{
-    mat4 proj;
-    mat4 view;
-    mat4 projView;
-    mat4 invProj;
-    mat4 invView;
-} matrices;
-
 struct AABB{
     vec4 minPoint;
     vec4 maxPoint;
@@ -27,6 +19,18 @@ struct ClusterLight{
     uint offset;
     uint count;
 };
+
+layout( push_constant ) uniform constants{
+    vec4 zBounds;
+} PC;
+
+layout(set = 0, binding = 0) uniform Matrices{
+    mat4 proj;
+    mat4 view;
+    mat4 projView;
+    mat4 invProj;
+    mat4 invView;
+} matrices;
 
 layout(set = 1, binding = 0) readonly buffer LightsCount{
 	int val;
@@ -48,12 +52,12 @@ layout(std430, set = 2, binding = 2) writeonly buffer ClusterLights{
     ClusterLight clusters[];
 } clusterLights;
 
-vec3 clipCoordsForIndex(uvec3 index){
+vec3 clipCoordsForIndex(uvec2 index){
     //index ranges from [0, localSize]
-    vec3 unit = 1/vec3(gl_WorkGroupSize);
-    vec3 coords = unit * index;
+    vec2 unit = 1/vec2(gl_NumWorkGroups.xy);
+    vec2 coords = unit * index;
     coords = coords * 2.0 - 1.0;
-    return coords;
+    return vec3(coords, 0.0);
 }
 
 vec3 clipToView(vec3 clip){
@@ -73,19 +77,43 @@ bool testSphereVsAABB(vec4 center_radius, AABB aabb){
     return dist <= (center_radius.w * center_radius.w);
 }
 
+AABB findAABB(vec3 minViewSpace, vec3 maxViewSpace, float tileNear, float tileFar){
+    vec3 minPointNear = minViewSpace * tileNear;
+    vec3 minPointFar  = minViewSpace * tileFar;
+    vec3 maxPointNear = maxViewSpace * tileNear;
+    vec3 maxPointFar = maxViewSpace * tileFar;
+    AABB aabb;
+    aabb.minPoint = vec4(min(min(minPointNear, minPointFar),min(maxPointNear, maxPointFar)), 1);
+    aabb.maxPoint = vec4(max(max(minPointNear, minPointFar),max(maxPointNear, maxPointFar)), 1);
+    return aabb;
+}
+
 shared int totalLightsInCluster;
 shared int baseOffset;
 
 void main(){
     atomicExchange(baseOffset, -1);
     atomicExchange(totalLightsInCluster, 0);
-    uvec3 index = gl_WorkGroupID;
+    uvec2 index = gl_WorkGroupID.xy;
     AABB currAABB;
-    currAABB.minPoint = vec4(clipToView(clipCoordsForIndex(index)), 1.0);
-    currAABB.maxPoint = vec4(clipToView(clipCoordsForIndex(index + 1)), 1.0);
+    // Near and far values of the cluster in view space
+    float zNear = PC.zBounds[0];
+    float zFar = PC.zBounds[1];
+    float zFOverzN = zFar / zNear;
+    float tileNear  =  pow(zFOverzN, gl_WorkGroupID.z/float(gl_NumWorkGroups.z));
+    float tileFar   =  pow(zFOverzN, (gl_WorkGroupID.z + 1) /float(gl_NumWorkGroups.z));
+
+    // currAABB.minPoint = clipToView(clipCoordsForIndex(index)) * tileNear;
+    // currAABB.maxPoint = clipToView(clipCoordsForIndex(index + 1)) * tileFar;
+    
+    currAABB = findAABB(clipToView(clipCoordsForIndex(index)), clipToView(clipCoordsForIndex(index + 1)), tileNear, tileFar);
+
+    // currAABB.minPoint *= tileNear / currAABB.minPoint.z;
+    // currAABB.maxPoint *= tileFar / currAABB.maxPoint.z;
+
     uvec3 clusterIndex = gl_WorkGroupID * uvec3(
-        gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_NumWorkGroups.z,
         gl_NumWorkGroups.y * gl_NumWorkGroups.z,
+        gl_NumWorkGroups.z,
         1
     );
 
@@ -118,11 +146,11 @@ void main(){
     offset = baseOffset + secondaryOffset;
 
     ClusterLight lightRange;
-    lightRange.offset = offset;
+    lightRange.offset = baseOffset;
     lightRange.count = totalLightsInCluster;
 
     for(i = 0; i < visibleLightsCount; ++i){
-        lightIndices.indices[offset + i] = int(visibleLights[i]); 
+        lightIndices.indices[offset + i] = secondaryOffset; 
     }
     clusterLights.clusters[clusterIndex.x + clusterIndex.y + clusterIndex.z] = lightRange;
 }

@@ -364,6 +364,7 @@ public:
 		auto stagingBufMap = stagingBuf->allocation->GetMappedData();
 		memcpy(stagingBufMap, &baseInfo, sizeof(BaseInfo));
 		memcpy(reinterpret_cast<char*>(stagingBufMap) + sizeof(BaseInfo), arrInfo, sizeof(ArrayInfo) * arrLen);
+		
 		VkBufferCopy copierBase{};
 		copierBase.srcOffset = 0;
 		copierBase.dstOffset = 0;
@@ -374,10 +375,15 @@ public:
 		copierArr.dstOffset = sizeof(BaseInfo) + arrOffset * sizeof(ArrayInfo);
 		copierArr.size = arrLen * sizeof(ArrayInfo);
 
-		copyBuffer(core, pool, {
+		std::vector<BufferCopyInfo> copyRegions = { 
 			BufferCopyInfo(stagingBuf->buffer, resourceBuf->buffer, copierBase),
-			BufferCopyInfo(stagingBuf->buffer, resourceBuf->buffer, copierArr)
-			});
+			BufferCopyInfo(stagingBuf->buffer, resourceBuf->buffer, copierArr) 
+		};
+
+		if (arrLen == 0) 
+			copyRegions.pop_back();
+
+		copyBuffer(core, pool, copyRegions);
 	}
 
 	inline void updateBase(VulkanCore core, VkCommandPool pool, BaseInfo baseInfo) {

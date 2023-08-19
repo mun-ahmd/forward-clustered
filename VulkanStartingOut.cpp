@@ -61,6 +61,11 @@ template<class FrameData>
 class FrameBase {
 private:
 	std::optional<std::function<void(FrameData* frame)>> destroyFunc;
+	
+	//to avoid reallocating each frame
+	std::vector<VkSemaphore> waitSemaphores;
+	std::vector<VkShaderStageFlags> waitStageMasks;
+	std::vector<VkFence> waitFences;
 public:
 
 	VulkanCore core;
@@ -103,9 +108,21 @@ public:
 		initializer(&this->data);
 	}
 
-	void performFrame(SwapChain& swapChain, std::function<void(FrameBase<FrameData>&)> performer) {
+	void performFrame(
+		SwapChain& swapChain,
+		std::function<void(FrameBase<FrameData>&)> performer,
+		std::vector<VkFence> additionalWaitFences,
+		std::vector<std::pair<VkSemaphore, VkPipelineStageFlags>> additionalWaitSemaphores
+	) {
 		imageIndex.reset();
-		vkWaitForFences(core->device, 1, &this->inFlightFence, VK_TRUE, std::numeric_limits<uint64_t>::max());
+		
+		this->waitFences.clear();
+		for (auto& ele : additionalWaitFences) {
+			this->waitFences.push_back(ele);
+		}
+		this->waitFences.push_back(this->inFlightFence);
+		vkWaitForFences(core->device, this->waitFences.size(), this->waitFences.data(), VK_TRUE, std::numeric_limits<uint64_t>::max());
+	
 		try {
 			imageIndex = swapChain.acquireNextImage(core->device, imageAvailableSemaphore);
 		}
@@ -113,7 +130,7 @@ public:
 			throw err;
 		}
 
-		vkResetFences(core->device, 1, &inFlightFence);
+		vkResetFences(core->device, this->waitFences.size(), this->waitFences.data());
 		vkResetCommandBuffer(commandBuffer, 0);
 
 		performer(*this);
@@ -125,11 +142,18 @@ public:
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-		VkSemaphore waitSemaphores[] = { imageAvailableSemaphore };
-		VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-		submitInfo.waitSemaphoreCount = 1;
-		submitInfo.pWaitSemaphores = waitSemaphores;
-		submitInfo.pWaitDstStageMask = waitStages;
+		this->waitSemaphores.clear();
+		this->waitStageMasks.clear();
+		for (auto& pair : additionalWaitSemaphores) {
+			this->waitSemaphores.push_back(pair.first);
+			this->waitStageMasks.push_back(pair.second);
+		}
+		this->waitSemaphores.push_back(imageAvailableSemaphore);
+		this->waitStageMasks.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+		submitInfo.waitSemaphoreCount = this->waitSemaphores.size();
+		submitInfo.pWaitSemaphores = this->waitSemaphores.data();
+		submitInfo.pWaitDstStageMask = this->waitStageMasks.data();
 
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &commandBuffer;
@@ -171,6 +195,8 @@ struct FrameData {
 	IAResource<PointLightLength, int> lightIndexBuffer;
 	RC<Buffer> clusterLightsBuffer;
 	VkDescriptorSet clusterCompDS;
+	VkSemaphore clusterCompSemaphore;
+	VkFence clusterCompFence;
 
 	VkCommandBuffer computeCommandBuffer;
 };
@@ -246,6 +272,9 @@ private:
 
 	CamHandler camera;
 
+	float nearPlane = 0.1f;
+	float farPlane = 200.f;
+
 	void initMeshesMaterials() {
 		camera = CamHandler(core->window);
 
@@ -316,6 +345,7 @@ private:
 		//frame->clustersBuffer.init(core, sizeof(AABB) * clusterSize.x * clusterSize.y * clusterSize.z);
 		//frame->clusterCompDS = frame->clustersBuffer.createDescriptor(core, VK_SHADER_STAGE_COMPUTE_BIT);
 		frame->lightIndexBuffer.init(core, 10000);
+
 		frame->clusterLightsBuffer = Buffer::create(core, clusterSize.x * clusterSize.y * clusterSize.z * sizeof(ClusterLights),
 			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 			VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
@@ -390,9 +420,20 @@ private:
 		allocInf.commandPool = this->commandPool;
 		allocInf.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 		frame->computeCommandBuffer = core->createCommandBuffer(allocInf);
-	}
+	
+		VkSemaphoreCreateInfo semaphoreInfo{};
+		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+		frame->clusterCompSemaphore = core->createSemaphore(semaphoreInfo);
 
-	void frameDestructor(FrameData* frame) {}
+		VkFenceCreateInfo fenceInfo{};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		frame->clusterCompFence = core->createFence(fenceInfo);
+}
+
+	void frameDestructor(FrameData* frame) {
+		vkDestroySemaphore(core->device, frame->clusterCompSemaphore, nullptr);
+		vkDestroyFence(core->device, frame->clusterCompFence, nullptr);
+	}
 
 	void initVulkan() {
 		core = createVulkanCore();
@@ -424,7 +465,7 @@ private:
 		//camera position
 		glm::mat4 view = camera.getView();
 		//camera projection
-		glm::mat4 projection = glm::perspective(glm::radians(70.f), static_cast<float>(swapChain.swapChainExtent.width) / swapChain.swapChainExtent.height, 0.1f, 200.0f);
+		glm::mat4 projection = glm::perspective(glm::radians(70.f), static_cast<float>(swapChain.swapChainExtent.width) / swapChain.swapChainExtent.height, nearPlane, farPlane);
 
 		globalDescriptor gDescValue{};
 		gDescValue.proj = projection;
@@ -459,7 +500,7 @@ private:
 		});
 
 		//compute clusters buffer once before first frame
-		computeClusters(frames.front());
+		//computeClusters(frames.front());
 
 		auto frameActions = 
 			[&](Frame& activeFrame) {
@@ -584,7 +625,12 @@ private:
 				this->imgui.test();
 				computeClusters(frames[current_frame]);
 
-				frames[current_frame].performFrame(swapChain, frameActions);
+				frames[current_frame].performFrame(
+					swapChain,
+					frameActions,
+					{ frames[current_frame].data.clusterCompFence },
+					{ {frames[current_frame].data.clusterCompSemaphore, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT} }
+				);
 
 				current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 				glfwPollEvents();
@@ -609,10 +655,9 @@ private:
 	}
 
 	void computeClusters(Frame& anyFrame) {
-		//Creating Fence Here only and destroying here
-		VkFenceCreateInfo fenceInfo{};
-		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-		auto fencer = core->createFence(fenceInfo);
+		PointLightLength length;
+		length.length = 0;
+		anyFrame.data.lightIndexBuffer.updateBase(core, commandPool, length);
 
 		VkCommandBufferBeginInfo beginInfo{};
 		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -623,6 +668,8 @@ private:
 		}
 
 		vkCmdBindPipeline(anyFrame.data.computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clusterComp.pipe);
+		glm::vec4 zBoundsVec = glm::vec4(nearPlane, farPlane, 0.0, 0.0);
+		vkCmdPushConstants(anyFrame.data.computeCommandBuffer, clusterComp.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(glm::vec4), &zBoundsVec);
 		VkDescriptorSet descriptors[3] = { anyFrame.data.globalDS, anyFrame.data.pointLightsDS, anyFrame.data.clusterCompDS };
 		vkCmdBindDescriptorSets(
 			anyFrame.data.computeCommandBuffer,
@@ -642,12 +689,9 @@ private:
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &anyFrame.data.computeCommandBuffer;
 		submitInfo.waitSemaphoreCount = 0;
-		submitInfo.signalSemaphoreCount = 0;
-		vkQueueSubmit(core->graphicsQueue, 1, &submitInfo, fencer);
-
-		vkWaitForFences(core->device, 1, &fencer, VK_TRUE, std::numeric_limits<uint64_t>::max());
-
-		vkDestroyFence(core->device, fencer, nullptr);
+		submitInfo.signalSemaphoreCount = 1;
+		submitInfo.pSignalSemaphores = &anyFrame.data.clusterCompSemaphore;
+		vkQueueSubmit(core->graphicsQueue, 1, &submitInfo, anyFrame.data.clusterCompFence);
 	}
 
 	void createClusterComputePipeline() {
@@ -670,8 +714,13 @@ private:
 			core->getLayout(frames.front().data.clusterCompDS)
 		};
 		pipelineLayoutInfo.pSetLayouts = layouts;
-		pipelineLayoutInfo.pushConstantRangeCount = 0;
 
+		VkPushConstantRange pushConstantRange{};
+		pushConstantRange.offset = 0;
+		pushConstantRange.size = sizeof(glm::vec4);
+		pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+		pipelineLayoutInfo.pushConstantRangeCount = 1;
+		pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 		this->clusterComp.layout = core->createPipelineLayout(pipelineLayoutInfo);
 
 		VkComputePipelineCreateInfo pipelineInfo{};
