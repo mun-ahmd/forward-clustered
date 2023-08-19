@@ -640,12 +640,12 @@ public:
 		return imageIndex;
 	}
 
-	void present(const VkQueue& presentQueue, const VkSemaphore* signalSemaphores, uint32_t imageIndex) {
+	void present(const VkQueue& presentQueue, const VkSemaphore* waitSemaphores, uint32_t imageIndex) {
 		VkPresentInfoKHR presentInfo{};
 		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
 		presentInfo.waitSemaphoreCount = 1;
-		presentInfo.pWaitSemaphores = signalSemaphores;
+		presentInfo.pWaitSemaphores = waitSemaphores;
 
 		VkSwapchainKHR swapChains[] = { swapChain };
 		presentInfo.swapchainCount = 1;

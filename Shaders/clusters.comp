@@ -1,46 +1,128 @@
 #version 450
-layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+layout (local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
-// layout(set = 0, binding = 0) uniform Matrices{
-//     mat4 proj;
-//     mat4 view;
-//     mat4 projView;
-//     mat4 invProj;
-//     mat4 invView;
-// } matrices;
+layout(set = 0, binding = 0) uniform Matrices{
+    mat4 proj;
+    mat4 view;
+    mat4 projView;
+    mat4 invProj;
+    mat4 invView;
+} matrices;
 
-// struct AABB{
-//     vec4 minPoint;
-//     vec4 maxPoint;
-// };
+struct AABB{
+    vec4 minPoint;
+    vec4 maxPoint;
+};
 
 // layout (std430, set = 1, binding = 1) buffer clusterAABB{
 //     AABB clusters[];
 // };
 
-// vec3 clipCoordsForIndex(uvec3 index){
-//     //index ranges from [0, localSize]
-//     vec3 unit = 1/vec3(gl_WorkGroupSize);
-//     vec3 coords = unit * index;
-//     coords = coords * 2.0 - 1.0;
-//     return coords;
-// }
+struct PL{
+	vec4 color;
+	vec4 position_radius;
+};
 
-// vec3 clipToView(vec3 clip){
-//     vec4 res = matrices.invProj * vec4(clip, 1.0);
-//     res /= res.w;
-//     return res.xyz;
-// }
+struct ClusterLight{
+    uint offset;
+    uint count;
+};
+
+layout(set = 1, binding = 0) readonly buffer LightsCount{
+	int val;
+} lightsCount;
+
+layout(set = 1, binding = 1) readonly buffer LightsData{
+	PL arr[];
+} lights;
+
+layout(set = 2, binding = 0) buffer LightIndexCount{
+    int count;
+} lightIndicesCount;
+
+layout(std430, set = 2, binding = 1) writeonly buffer LightIndex{
+    int indices[];
+} lightIndices;
+
+layout(std430, set = 2, binding = 2) writeonly buffer ClusterLights{
+    ClusterLight clusters[];
+} clusterLights;
+
+vec3 clipCoordsForIndex(uvec3 index){
+    //index ranges from [0, localSize]
+    vec3 unit = 1/vec3(gl_WorkGroupSize);
+    vec3 coords = unit * index;
+    coords = coords * 2.0 - 1.0;
+    return coords;
+}
+
+vec3 clipToView(vec3 clip){
+    //todo
+    vec4 res = inverse(matrices.proj) * vec4(clip, 1.0);
+    res /= res.w;
+    return res.xyz;
+}
+
+bool testSphereVsAABB(vec4 center_radius, AABB aabb){
+    float dist = 0.0;
+    center_radius.xyz = (matrices.view * vec4(center_radius.xyz, 1)).xyz;
+    for(int i = 0; i < 3; ++i){
+        float dist_dim = max(max(aabb.minPoint[i] - center_radius[i], center_radius[i] - aabb.maxPoint[i]), 0.0);
+        dist += dist_dim * dist_dim;
+    }
+    return dist <= (center_radius.w * center_radius.w);
+}
+
+shared int totalLightsInCluster;
+shared int baseOffset;
 
 void main(){
-//     uvec3 index = gl_WorkGroupID;
-//     AABB currAABB;
-//     currAABB.minPoint = vec4(clipToView(clipCoordsForIndex(index)), 1.0);
-//     currAABB.maxPoint = vec4(clipToView(clipCoordsForIndex(index + 1)), 1.0);
-//     uvec3 clusterIndex = gl_WorkGroupID * uvec3(
-//         gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_NumWorkGroups.z,
-//         gl_NumWorkGroups.y * gl_NumWorkGroups.z,
-//         1
-//     );
-//     clusters[clusterIndex.x + clusterIndex.y + clusterIndex.z] = currAABB;
+    atomicExchange(baseOffset, -1);
+    atomicExchange(totalLightsInCluster, 0);
+    uvec3 index = gl_WorkGroupID;
+    AABB currAABB;
+    currAABB.minPoint = vec4(clipToView(clipCoordsForIndex(index)), 1.0);
+    currAABB.maxPoint = vec4(clipToView(clipCoordsForIndex(index + 1)), 1.0);
+    uvec3 clusterIndex = gl_WorkGroupID * uvec3(
+        gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_NumWorkGroups.z,
+        gl_NumWorkGroups.y * gl_NumWorkGroups.z,
+        1
+    );
+
+    uint numLights = lightsCount.val;
+    uint batch_size = (numLights + gl_WorkGroupSize.x - 1) / gl_WorkGroupSize.x;
+
+    uint visibleLights[100];
+    int visibleLightsCount = 0;
+
+    uint i = gl_LocalInvocationIndex * batch_size;
+    uint limit = min((gl_LocalInvocationIndex + 1) * batch_size, numLights);
+    for(i; i < limit; i++){
+        if(testSphereVsAABB(lights.arr[i].position_radius, currAABB)){
+            visibleLights[visibleLightsCount] = i;
+            visibleLightsCount += 1;
+        }
+    }
+
+    barrier();
+    int secondaryOffset = atomicAdd(totalLightsInCluster, visibleLightsCount);
+    //if base offset is equal to -1 it has not been initialized
+    int baseOffsetVal = atomicCompSwap(baseOffset, -1, 2147483647);
+    int isOffsetInit =  int(baseOffsetVal != -1);
+    //if base offset is initialized, add zero to the main counter, else add total lights in cluster
+    barrier();
+    int offset = atomicAdd(lightIndicesCount.count, totalLightsInCluster * (1 - isOffsetInit));
+    atomicMin(baseOffset, offset);
+    barrier();
+    //now final offset value is equal to baseoffset + secondaryOffset
+    offset = baseOffset + secondaryOffset;
+
+    ClusterLight lightRange;
+    lightRange.offset = offset;
+    lightRange.count = totalLightsInCluster;
+
+    for(i = 0; i < visibleLightsCount; ++i){
+        lightIndices.indices[offset + i] = int(visibleLights[i]); 
+    }
+    clusterLights.clusters[clusterIndex.x + clusterIndex.y + clusterIndex.z] = lightRange;
 }

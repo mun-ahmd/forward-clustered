@@ -35,57 +35,33 @@ constexpr int lightCount = 10;
 template<typename T>
 using RC = std::shared_ptr<T>;
 
-class Frame {
+struct AABB {
+	glm::vec4 minPos;
+	glm::vec4 maxPos;
+};
+
+struct ClusterLights {
+	int offset;
+	int count;
+};
+
+struct globalDescriptor {
+	glm::mat4 proj;
+	glm::mat4 view;
+	glm::mat4 projView;
+
+	void setView(glm::mat4& view) {
+		this->view = view;
+		this->projView = proj * view;
+	}
+};
+
+
+template<class FrameData>
+class FrameBase {
 private:
-	//only write to below using memcpy
-	void* matricesMappedPointer;
-
-	void initializeMatricesBuffer() {
-		this->matricesBuffer = Buffer::create(core, sizeof(globalDescriptor), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, (VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT), 0);
-		matricesMappedPointer = this->matricesBuffer->allocation->GetMappedData();
-	}
-
-	void createGlobalDescriptorSet() {
-
-		initializeMatricesBuffer();
-
-		VkDescriptorSetLayoutBinding binding0{};
-		binding0.descriptorCount = 1;
-		binding0.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		binding0.stageFlags = VK_SHADER_STAGE_ALL;
-		binding0.binding = 0;
-		this->globalDS = core->createDescriptorSet({ binding0 });
-
-		VkWriteDescriptorSet write{};
-		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		write.descriptorCount = 1;
-		write.descriptorType = binding0.descriptorType;
-		write.dstSet = this->globalDS;
-		write.dstBinding = binding0.binding;
-		write.pNext = nullptr;
-		VkDescriptorBufferInfo info{};
-		info.buffer = this->matricesBuffer->buffer;
-		info.offset = 0;
-		info.range = sizeof(globalDescriptor);
-		write.pBufferInfo = &info;
-
-		vkUpdateDescriptorSets(core->device, 1, &write, 0, nullptr);
-	}
-
-	void cleanupGlobalDescriptorSet() {
-	}
-
+	std::optional<std::function<void(FrameData* frame)>> destroyFunc;
 public:
-	struct globalDescriptor {
-		glm::mat4 proj;
-		glm::mat4 view;
-		glm::mat4 projView;
-
-		void setView(glm::mat4& view) {
-			this->view = view;
-			this->projView = proj * view;
-		}
-	};
 
 	VulkanCore core;
 
@@ -99,29 +75,19 @@ public:
 	//if it does not have a value then frame is not in flight
 	std::optional<uint32_t> imageIndex;
 
-	RC<Buffer> matricesBuffer;
-	VkDescriptorSet globalDS;
+	//Frame Data:
+	FrameData data;
 
-	PointLightsBuffer pointLights;
-	VkDescriptorSet pointLightsDS;
+	FrameBase() = default;
 
-	//RC<Buffer> clustersBuffer;
-	//IAResource<NullResourceInfo, uint32_t> lightIndexBuffer;
-	//RC<Buffer> clusterLightsBuffer;
-
-	Frame() = default;
-
-	Frame(VulkanCore core, VkCommandPool commandPool) : core(core), commandBufferPool(commandPool) {
+	FrameBase(VulkanCore core, VkCommandPool commandPool, std::function<void(FrameData*)> initializer, std::function<void(FrameData*)> destroyFunc)
+		: core(core), commandBufferPool(commandPool), destroyFunc(destroyFunc) {
 		VkCommandBufferAllocateInfo allocInfo{};
 		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 		allocInfo.commandPool = commandBufferPool;
 		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 		allocInfo.commandBufferCount = 1;
-
 		commandBuffer = core->createCommandBuffer(allocInfo);
-		createGlobalDescriptorSet();
-		pointLights.init(core);
-		pointLightsDS = pointLights.createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
 		VkSemaphoreCreateInfo semaphoreInfo{};
 		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -133,12 +99,13 @@ public:
 		imageAvailableSemaphore = core->createSemaphore(semaphoreInfo);
 		renderFinishedSemaphore = core->createSemaphore(semaphoreInfo);
 		inFlightFence = core->createFence(fenceInfo);
+
+		initializer(&this->data);
 	}
 
-	void beginFrame(SwapChain& swapChain, globalDescriptor value) {
-		memcpy(this->matricesMappedPointer, &value, sizeof(globalDescriptor));
-		vkWaitForFences(core->device, 1, &this->inFlightFence, VK_TRUE, std::numeric_limits<uint64_t>::max());
+	void performFrame(SwapChain& swapChain, std::function<void(FrameBase<FrameData>&)> performer) {
 		imageIndex.reset();
+		vkWaitForFences(core->device, 1, &this->inFlightFence, VK_TRUE, std::numeric_limits<uint64_t>::max());
 		try {
 			imageIndex = swapChain.acquireNextImage(core->device, imageAvailableSemaphore);
 		}
@@ -147,11 +114,10 @@ public:
 		}
 
 		vkResetFences(core->device, 1, &inFlightFence);
-
 		vkResetCommandBuffer(commandBuffer, 0);
-	}
 
-	void endFrame(SwapChain& swapChain) {
+		performer(*this);
+
 		if (!imageIndex.has_value()) {
 			//no frame in flight
 			throw std::runtime_error("No Frame in Flight!");
@@ -184,13 +150,32 @@ public:
 	}
 
 	void cleanup(const VkDevice& device) {
-		cleanupGlobalDescriptorSet();
+		if(destroyFunc.has_value())
+			destroyFunc.value()(&this->data);
 		vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
 		vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
 		vkDestroyFence(device, inFlightFence, nullptr);
 		vkFreeCommandBuffers(device, commandBufferPool, 1, &commandBuffer);
 	}
 };
+
+struct FrameData {
+	void* matricesMappedPointer;
+	RC<Buffer> matricesBuffer;
+	VkDescriptorSet globalDS;
+
+	PointLightsBuffer pointLights;
+	VkDescriptorSet pointLightsDS;
+
+	//IAResource<NullResourceInfo, AABB> clustersBuffer;
+	IAResource<PointLightLength, int> lightIndexBuffer;
+	RC<Buffer> clusterLightsBuffer;
+	VkDescriptorSet clusterCompDS;
+
+	VkCommandBuffer computeCommandBuffer;
+};
+
+typedef FrameBase<FrameData> Frame;
 
 class HelloTriangleApplication {
 public:
@@ -212,6 +197,8 @@ public:
 		vkDestroyPipelineLayout(core->device, pipelineLayout, nullptr);
 		vkDestroyPipeline(core->device, depthPrePass.pipe, nullptr);
 		vkDestroyPipelineLayout(core->device, depthPrePass.layout, nullptr);
+		vkDestroyPipeline(core->device, clusterComp.pipe, nullptr);
+		vkDestroyPipelineLayout(core->device, clusterComp.layout, nullptr);
 		this->imgui.destroy();
 		
 		vkDestroyRenderPass(core->device, renderPass, nullptr);
@@ -290,15 +277,132 @@ private:
 		}
 
 		for (auto& frame : this->frames) {
-			frame.pointLights.addLights(core, commandPool, this->pointLights.data(), this->pointLights.size());
+			frame.data.pointLights.addLights(core, commandPool, this->pointLights.data(), this->pointLights.size());
 		}
 	}
+
+	void frameInitializer(FrameData* frame) {
+		frame->matricesBuffer = Buffer::create(core, sizeof(globalDescriptor), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, (VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT), 0);
+		frame->matricesMappedPointer = frame->matricesBuffer->allocation->GetMappedData();
+
+		{
+			VkDescriptorSetLayoutBinding binding{};
+			binding.descriptorCount = 1;
+			binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			binding.stageFlags = VK_SHADER_STAGE_ALL;
+			binding.binding = 0;
+			frame->globalDS = core->createDescriptorSet({ binding });
+
+			VkWriteDescriptorSet write{};
+			write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			write.descriptorCount = 1;
+			write.descriptorType = binding.descriptorType;
+			write.dstSet = frame->globalDS;
+			write.dstBinding = binding.binding;
+			write.pNext = nullptr;
+			VkDescriptorBufferInfo info{};
+			info.buffer = frame->matricesBuffer->buffer;
+			info.offset = 0;
+			info.range = sizeof(globalDescriptor);
+			write.pBufferInfo = &info;
+
+			vkUpdateDescriptorSets(core->device, 1, &write, 0, nullptr);
+		}
+
+		frame->pointLights.init(core);
+		frame->pointLightsDS = frame->pointLights.createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+
+		glm::uvec3 clusterSize = glm::uvec3(32, 32, 4);
+		//frame->clustersBuffer.init(core, sizeof(AABB) * clusterSize.x * clusterSize.y * clusterSize.z);
+		//frame->clusterCompDS = frame->clustersBuffer.createDescriptor(core, VK_SHADER_STAGE_COMPUTE_BIT);
+		frame->lightIndexBuffer.init(core, 10000);
+		frame->clusterLightsBuffer = Buffer::create(core, clusterSize.x * clusterSize.y * clusterSize.z * sizeof(ClusterLights),
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
+			0);
+		{
+			VkDescriptorSetLayoutBinding binding{};
+			binding.descriptorCount = 1;
+			binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+			binding.binding = 0;
+
+			VkDescriptorSetLayoutBinding binding2{};
+			binding2.descriptorCount = 1;
+			binding2.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			binding2.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+			binding2.binding = 1;
+
+			VkDescriptorSetLayoutBinding binding3{};
+			binding3.descriptorCount = 1;
+			binding3.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			binding3.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+			binding3.binding = 2;
+			frame->clusterCompDS = core->createDescriptorSet({ binding, binding2, binding3 });
+
+
+			VkDescriptorBufferInfo info{};
+			info.buffer = frame->lightIndexBuffer.resourceBuf->buffer;
+			info.offset = 0;
+			info.range = sizeof(PointLightLength);
+			VkWriteDescriptorSet write{};
+			write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			write.descriptorCount = 1;
+			write.descriptorType = binding.descriptorType;
+			write.dstSet = frame->clusterCompDS;
+			write.dstBinding = binding.binding;
+			write.pNext = nullptr;
+			write.pBufferInfo = &info;
+
+			VkDescriptorBufferInfo info2{};
+			info2.buffer = frame->lightIndexBuffer.resourceBuf->buffer;
+			info2.offset = sizeof(PointLightLength);
+			info2.range = sizeof(int) * frame->lightIndexBuffer.maxLength;
+			VkWriteDescriptorSet write2{};
+			write2.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			write2.descriptorCount = 1;
+			write2.descriptorType = binding2.descriptorType;
+			write2.dstSet = frame->clusterCompDS;
+			write2.dstBinding = binding2.binding;
+			write2.pNext = nullptr;
+			write2.pBufferInfo = &info2;
+
+			VkDescriptorBufferInfo info3{};
+			info3.buffer = frame->clusterLightsBuffer->buffer;
+			info3.offset = 0;
+			info3.range = sizeof(ClusterLights) * clusterSize.x * clusterSize.y * clusterSize.z;
+			VkWriteDescriptorSet write3{};
+			write3.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			write3.descriptorCount = 1;
+			write3.descriptorType = binding3.descriptorType;
+			write3.dstSet = frame->clusterCompDS;
+			write3.dstBinding = binding3.binding;
+			write3.pNext = nullptr;
+			write3.pBufferInfo = &info3;
+
+			VkWriteDescriptorSet writes[3] = { write, write2, write3 };
+			vkUpdateDescriptorSets(core->device, 3, writes, 0, nullptr);
+		}
+
+		VkCommandBufferAllocateInfo allocInf{};
+		allocInf.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		allocInf.commandBufferCount = 1;
+		allocInf.commandPool = this->commandPool;
+		allocInf.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		frame->computeCommandBuffer = core->createCommandBuffer(allocInf);
+	}
+
+	void frameDestructor(FrameData* frame) {}
 
 	void initVulkan() {
 		core = createVulkanCore();
 		createCommandPool();
 		for (auto& frame : frames)
-			frame = Frame(core, commandPool);
+			frame = Frame(
+				core, commandPool,
+				std::bind(&HelloTriangleApplication::frameInitializer, this, std::placeholders::_1),
+				std::bind(&HelloTriangleApplication::frameDestructor, this, std::placeholders::_1)
+				);
 		auto swapCapabilities = core->querySwapChainSupport();
 		auto swapChainFormat = chooseSwapSurfaceFormat(swapCapabilities.formats);
 		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
@@ -322,7 +426,7 @@ private:
 		//camera projection
 		glm::mat4 projection = glm::perspective(glm::radians(70.f), static_cast<float>(swapChain.swapChainExtent.width) / swapChain.swapChainExtent.height, 0.1f, 200.0f);
 
-		Frame::globalDescriptor gDescValue{};
+		globalDescriptor gDescValue{};
 		gDescValue.proj = projection;
 
 		auto inputManager = getInputManager(core->window);
@@ -354,6 +458,115 @@ private:
 			}
 		});
 
+		//compute clusters buffer once before first frame
+		computeClusters(frames.front());
+
+		auto frameActions = 
+			[&](Frame& activeFrame) {
+			memcpy(activeFrame.data.matricesMappedPointer, &gDescValue, sizeof(globalDescriptor));
+			VkCommandBufferBeginInfo beginInfo{};
+			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			beginInfo.flags = 0; // Optional
+			beginInfo.pInheritanceInfo = nullptr; // Optional
+
+			if (vkBeginCommandBuffer(activeFrame.commandBuffer, &beginInfo) != VK_SUCCESS) {
+				throw std::runtime_error("failed to begin recording command buffer!");
+			}
+
+			auto activeSwapChainFramebuffer = swapChain.swapChainFramebuffers[activeFrame.imageIndex.value()];
+
+
+			VkRenderPassBeginInfo renderPassInfo{};
+			renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+			renderPassInfo.renderPass = renderPass;
+			renderPassInfo.framebuffer = activeSwapChainFramebuffer;
+
+			renderPassInfo.renderArea.offset = { 0, 0 };
+			renderPassInfo.renderArea.extent = swapChain.swapChainExtent;
+
+			std::array<VkClearValue, 2> clearValues{};
+			clearValues[0].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
+			clearValues[1].depthStencil = { 1.0f, 0 };
+			renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+			renderPassInfo.pClearValues = clearValues.data();
+
+			vkCmdBeginRenderPass(activeFrame.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+			//Start of depth prepass
+
+			vkCmdBindPipeline(activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, depthPrePass.pipe);
+			vkCmdBindDescriptorSets(activeFrame.commandBuffer,
+				VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+				0, 1, &activeFrame.data.globalDS,
+				0, nullptr
+			);
+
+			VkViewport viewport{};
+			viewport.x = 0.0f;
+			viewport.y = 0.0f;
+			viewport.width = static_cast<float>(swapChain.swapChainExtent.width);
+			viewport.height = static_cast<float>(swapChain.swapChainExtent.height);
+			viewport.minDepth = 0.0f;
+			viewport.maxDepth = 1.0f;
+			vkCmdSetViewport(activeFrame.commandBuffer, 0, 1, &viewport);
+
+			VkRect2D scissor{};
+			scissor.offset = { 0, 0 };
+			scissor.extent = swapChain.swapChainExtent;
+			vkCmdSetScissor(activeFrame.commandBuffer, 0, 1, &scissor);
+
+			VkDeviceSize offset = 0;
+			for (int i = 0; i < meshes.size(); ++i) {
+				MeshPushConstants constants{ transforms[i] };
+				vkCmdPushConstants(activeFrame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
+
+				vkCmdBindVertexBuffers(activeFrame.commandBuffer, 0, 1, &meshes[i].vertexBuffer->buffer, &offset);
+				vkCmdBindIndexBuffer(activeFrame.commandBuffer, meshes[i].indexBuffer->buffer, 0, VK_INDEX_TYPE_UINT16);
+				vkCmdDrawIndexed(activeFrame.commandBuffer, meshes[i].numIndices, 1, 0, 0, 0);
+			}
+
+			//end of depth prepass
+			vkCmdNextSubpass(activeFrame.commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
+
+			vkCmdBindPipeline(activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+			VkDescriptorSet globalAndLightsSet[2] = { activeFrame.data.globalDS, activeFrame.data.pointLightsDS };
+			vkCmdBindDescriptorSets(activeFrame.commandBuffer,
+				VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+				0, 2, globalAndLightsSet,
+				0, nullptr
+			);
+
+			vkCmdSetViewport(activeFrame.commandBuffer, 0, 1, &viewport);
+
+			vkCmdSetScissor(activeFrame.commandBuffer, 0, 1, &scissor);
+
+			//make a model view matrix for rendering the object
+			//camera position
+
+			offset = 0;
+			for (int i = 0; i < meshes.size(); ++i) {
+				uint32_t dynamicOffset = materials[meshMatIndices[i]]->getResourceOffset();
+				vkCmdBindDescriptorSets(
+					activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+					pipelineLayout, 2, 1, &materialsDescriptorSet, 1, &dynamicOffset
+				);
+
+				MeshPushConstants constants{ transforms[i] };
+				vkCmdPushConstants(activeFrame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
+
+				vkCmdBindVertexBuffers(activeFrame.commandBuffer, 0, 1, &meshes[i].vertexBuffer->buffer, &offset);
+				vkCmdBindIndexBuffer(activeFrame.commandBuffer, meshes[i].indexBuffer->buffer, 0, VK_INDEX_TYPE_UINT16);
+				vkCmdDrawIndexed(activeFrame.commandBuffer, meshes[i].numIndices, 1, 0, 0, 0);
+			}
+
+			imgui.drawWithinRenderPass(activeFrame.commandBuffer);
+
+			vkCmdEndRenderPass(activeFrame.commandBuffer);
+
+			if (vkEndCommandBuffer(activeFrame.commandBuffer) != VK_SUCCESS) {
+				throw std::runtime_error("failed to record command buffer!");
+			}
+		};
 		
 		while (!glfwWindowShouldClose(core->window)) {
 			try {
@@ -369,116 +582,9 @@ private:
 
 				this->imgui.newFrame();
 				this->imgui.test();
+				computeClusters(frames[current_frame]);
 
-
-				Frame& activeFrame = frames[current_frame];
-				//todo Switch to functional variant of beginFrame/endFrame
-				activeFrame.beginFrame(swapChain, gDescValue);
-				
-				VkCommandBufferBeginInfo beginInfo{};
-				beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-				beginInfo.flags = 0; // Optional
-				beginInfo.pInheritanceInfo = nullptr; // Optional
-
-				if (vkBeginCommandBuffer(activeFrame.commandBuffer, &beginInfo) != VK_SUCCESS) {
-					throw std::runtime_error("failed to begin recording command buffer!");
-				}
-
-				auto activeSwapChainFramebuffer = swapChain.swapChainFramebuffers[activeFrame.imageIndex.value()];
-
-
-				VkRenderPassBeginInfo renderPassInfo{};
-				renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-				renderPassInfo.renderPass = renderPass;
-				renderPassInfo.framebuffer = activeSwapChainFramebuffer;
-
-				renderPassInfo.renderArea.offset = { 0, 0 };
-				renderPassInfo.renderArea.extent = swapChain.swapChainExtent;
-
-				std::array<VkClearValue, 2> clearValues{};
-				clearValues[0].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
-				clearValues[1].depthStencil = { 1.0f, 0 };
-				renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-				renderPassInfo.pClearValues = clearValues.data();
-
-				vkCmdBeginRenderPass(activeFrame.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-				//Start of depth prepass
-
-				vkCmdBindPipeline(activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, depthPrePass.pipe);
-				vkCmdBindDescriptorSets(activeFrame.commandBuffer,
-					VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-					0, 1, &activeFrame.globalDS,
-					0, nullptr
-				);
-
-				VkViewport viewport{};
-				viewport.x = 0.0f;
-				viewport.y = 0.0f;
-				viewport.width = static_cast<float>(swapChain.swapChainExtent.width);
-				viewport.height = static_cast<float>(swapChain.swapChainExtent.height);
-				viewport.minDepth = 0.0f;
-				viewport.maxDepth = 1.0f;
-				vkCmdSetViewport(activeFrame.commandBuffer, 0, 1, &viewport);
-
-				VkRect2D scissor{};
-				scissor.offset = { 0, 0 };
-				scissor.extent = swapChain.swapChainExtent;
-				vkCmdSetScissor(activeFrame.commandBuffer, 0, 1, &scissor);
-
-				VkDeviceSize offset = 0;
-				for (int i = 0; i < meshes.size(); ++i) {
-					MeshPushConstants constants{ transforms[i] };
-					vkCmdPushConstants(activeFrame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
-
-					vkCmdBindVertexBuffers(activeFrame.commandBuffer, 0, 1, &meshes[i].vertexBuffer->buffer, &offset);
-					vkCmdBindIndexBuffer(activeFrame.commandBuffer, meshes[i].indexBuffer->buffer, 0, VK_INDEX_TYPE_UINT16);
-					vkCmdDrawIndexed(activeFrame.commandBuffer, meshes[i].numIndices, 1, 0, 0, 0);
-				}
-
-				//end of depth prepass
-				vkCmdNextSubpass(activeFrame.commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
-
-				vkCmdBindPipeline(activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
-
-				VkDescriptorSet globalAndLightsSet[2] = { activeFrame.globalDS, activeFrame.pointLightsDS };
-				vkCmdBindDescriptorSets(activeFrame.commandBuffer,
-					VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-					0, 2, globalAndLightsSet,
-					0, nullptr
-				);
-
-				vkCmdSetViewport(activeFrame.commandBuffer, 0, 1, &viewport);
-
-				vkCmdSetScissor(activeFrame.commandBuffer, 0, 1, &scissor);
-
-				//make a model view matrix for rendering the object
-				//camera position
-
-				offset = 0;
-				for (int i = 0; i < meshes.size(); ++i) {
-					uint32_t dynamicOffset = materials[meshMatIndices[i]]->getResourceOffset();
-					vkCmdBindDescriptorSets(
-						activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-						pipelineLayout, 2, 1, &materialsDescriptorSet, 1, &dynamicOffset
-					);
-
-					MeshPushConstants constants{ transforms[i] };
-					vkCmdPushConstants(activeFrame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
-
-					vkCmdBindVertexBuffers(activeFrame.commandBuffer, 0, 1, &meshes[i].vertexBuffer->buffer, &offset);
-					vkCmdBindIndexBuffer(activeFrame.commandBuffer, meshes[i].indexBuffer->buffer, 0, VK_INDEX_TYPE_UINT16);
-					vkCmdDrawIndexed(activeFrame.commandBuffer, meshes[i].numIndices, 1, 0, 0, 0);
-				}
-
-				imgui.drawWithinRenderPass(activeFrame.commandBuffer);
-
-				vkCmdEndRenderPass(activeFrame.commandBuffer);
-
-				if (vkEndCommandBuffer(activeFrame.commandBuffer) != VK_SUCCESS) {
-					throw std::runtime_error("failed to record command buffer!");
-				}
-
-				activeFrame.endFrame(swapChain);
+				frames[current_frame].performFrame(swapChain, frameActions);
 
 				current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 				glfwPollEvents();
@@ -502,7 +608,50 @@ private:
 		commandPool = core->createCommandPool(poolInfo);
 	}
 
+	void computeClusters(Frame& anyFrame) {
+		//Creating Fence Here only and destroying here
+		VkFenceCreateInfo fenceInfo{};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		auto fencer = core->createFence(fenceInfo);
+
+		VkCommandBufferBeginInfo beginInfo{};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+		if (vkBeginCommandBuffer(anyFrame.data.computeCommandBuffer, &beginInfo) != VK_SUCCESS) {
+			throw std::runtime_error("failed to begin recording command buffer!");
+		}
+
+		vkCmdBindPipeline(anyFrame.data.computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clusterComp.pipe);
+		VkDescriptorSet descriptors[3] = { anyFrame.data.globalDS, anyFrame.data.pointLightsDS, anyFrame.data.clusterCompDS };
+		vkCmdBindDescriptorSets(
+			anyFrame.data.computeCommandBuffer,
+			VK_PIPELINE_BIND_POINT_COMPUTE, 
+			clusterComp.layout, 0, 3, descriptors, 
+			0, 0
+		);
+
+		vkCmdDispatch(anyFrame.data.computeCommandBuffer, 32, 32, 4);
+
+		if (vkEndCommandBuffer(anyFrame.data.computeCommandBuffer) != VK_SUCCESS) {
+				throw std::runtime_error("failed to record command buffer!");
+		}
+		
+		VkSubmitInfo submitInfo{};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &anyFrame.data.computeCommandBuffer;
+		submitInfo.waitSemaphoreCount = 0;
+		submitInfo.signalSemaphoreCount = 0;
+		vkQueueSubmit(core->graphicsQueue, 1, &submitInfo, fencer);
+
+		vkWaitForFences(core->device, 1, &fencer, VK_TRUE, std::numeric_limits<uint64_t>::max());
+
+		vkDestroyFence(core->device, fencer, nullptr);
+	}
+
 	void createClusterComputePipeline() {
+		//pipeline creation
 		auto computeShaderCode = compileGlslToSpv("shaders/clusters.comp", shaderc_shader_kind::shaderc_compute_shader);
 		VkShaderModule computeShaderModule = createShaderModule(computeShaderCode);
 
@@ -514,9 +663,11 @@ private:
 
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = 1;
-		VkDescriptorSetLayout layouts[1] = {
-			core->getLayout(frames.front().globalDS)
+		pipelineLayoutInfo.setLayoutCount = 3;
+		VkDescriptorSetLayout layouts[3] = {
+			core->getLayout(frames.front().data.globalDS),
+			core->getLayout(frames.front().data.pointLightsDS),
+			core->getLayout(frames.front().data.clusterCompDS)
 		};
 		pipelineLayoutInfo.pSetLayouts = layouts;
 		pipelineLayoutInfo.pushConstantRangeCount = 0;
@@ -531,7 +682,9 @@ private:
 		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
 		pipelineInfo.basePipelineIndex = -1; // Optional
 
-		core->createComputePipeline(pipelineInfo);
+		clusterComp.pipe = core->createComputePipeline(pipelineInfo);
+
+		vkDestroyShaderModule(core->device, computeShaderModule, nullptr);
 	}
 
 	void createDepthPrePassPipeline() {
@@ -621,7 +774,7 @@ private:
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 		pipelineLayoutInfo.setLayoutCount = 1;
 		VkDescriptorSetLayout layouts[1] = {
-			core->getLayout(frames.front().globalDS)
+			core->getLayout(frames.front().data.globalDS)
 		};
 		pipelineLayoutInfo.pSetLayouts = layouts;
 		pipelineLayoutInfo.pushConstantRangeCount = 1;
@@ -845,8 +998,8 @@ private:
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 		pipelineLayoutInfo.setLayoutCount = 3;
 		VkDescriptorSetLayout layouts[3] = {
-			core->getLayout(frames.front().globalDS),
-			core->getLayout(frames.front().pointLightsDS),
+			core->getLayout(frames.front().data.globalDS),
+			core->getLayout(frames.front().data.pointLightsDS),
 			core->getLayout(this->materialsDescriptorSet)
 		};
 		pipelineLayoutInfo.pSetLayouts = layouts;
@@ -1012,7 +1165,7 @@ private:
 
 
 int main() {
-	HelloTriangleApplication app;
+	HelloTriangleApplication app = HelloTriangleApplication();
 	try {
 		app.run();
 	}

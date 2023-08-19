@@ -144,11 +144,11 @@ public:
 	}
 
 	void destroy() {
-		vkDestroyPipelineCache(core->device, this->imguiPipelineCache, nullptr);
-		vkDestroyDescriptorPool(core->device, this->imguiPool, nullptr);
 		ImGui_ImplVulkan_Shutdown();
 		ImGui_ImplGlfw_Shutdown();
 		ImGui::DestroyContext();
+		vkDestroyPipelineCache(core->device, this->imguiPipelineCache, nullptr);
+		vkDestroyDescriptorPool(core->device, this->imguiPool, nullptr);
 		this->core.reset();
 	}
 
