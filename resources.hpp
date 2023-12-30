@@ -1,5 +1,8 @@
 #pragma once
 #include "core.hpp"
+#include "MeshLoader.h"
+#include <vector>
+#include <array>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
