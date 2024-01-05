@@ -1,16 +1,16 @@
 #pragma once
 #include <vector>
 #include <assert.h>
-#include "resources.hpp"
 #include <memory>
 
 #include <glm/glm.hpp>
 #include <glm/gtx/component_wise.hpp>
 
 #include "VulkanStartingOut.hpp"
+#include "resources.hpp"
 
 constexpr int chunkWidth = 16;
-constexpr int chunkHeight = 16;
+constexpr int chunkHeight = 256;
 constexpr int chunkDepth = 16;
 
 class VoxelChunk {
@@ -24,7 +24,7 @@ public:
 	constexpr inline static glm::ivec3 chunkSize = glm::ivec3(chunkWidth, chunkHeight, chunkDepth);
 	constexpr inline static glm::ivec3 chunkLowerLimit = -chunkSize / 2;
 	constexpr inline static glm::ivec3 chunkUpperLimit = (chunkSize / 2) - 1;
-	constexpr inline static int chunkVoxelCount = (chunkSize.x + chunkSize.y + chunkSize.z);
+	constexpr inline static int chunkVoxelCount = (chunkSize.x * chunkSize.y * chunkSize.z);
 	constexpr inline static glm::ivec3 unsignedCoords(glm::ivec3 coords) {
 		return coords - chunkLowerLimit;
 	}
@@ -132,10 +132,10 @@ public:
 	// to implement add an overload to the updateArray func which accepts staging buffer
 
 	void setChunks(VoxelChunk* chunks, size_t count) {
-		Application& app = Application::app();
+		VulkanUtils& utils= VulkanUtils::utils();
 		for (size_t i = 0; i < count; i++) {
 			this->updateArray(
-				app.getCore(), app.getCommandPool(),
+				utils.getCore(), utils.getCommandPool(),
 				chunks[i].data(), VoxelChunk::chunkVoxelCount * sizeof(int),
 				VoxelChunk::chunkVoxelCount * sizeof(int) * i
 			);
@@ -143,9 +143,9 @@ public:
 	}
 
 	void updateChunk(VoxelChunk& chunk, size_t chunkIndex) {
-		Application& app = Application::app();
+		VulkanUtils& utils = VulkanUtils::utils();
 		this->updateArray(
-			app.getCore(), app.getCommandPool(),
+			utils.getCore(), utils.getCommandPool(),
 			chunk.data(), VoxelChunk::chunkVoxelCount * sizeof(int),
 			VoxelChunk::chunkVoxelCount * sizeof(int) * chunkIndex
 		);
@@ -165,8 +165,8 @@ public:
 		//set count to zero
 		VoxelDrawCount zeroDrawCount = { 0 };
 		this->updateBase(
-			Application::app().getCore(),
-			Application::app().getCommandPool(),
+			VulkanUtils::utils().getCore(),
+			VulkanUtils::utils().getCommandPool(),
 			zeroDrawCount
 		);
 	}
@@ -176,6 +176,10 @@ public:
 class VoxelRenderer {
 private:
 	VulkanCore core;
+
+	//the global descriptor sets
+	// matrices, lights, materials
+	std::array<VkDescriptorSetLayout, 3> descriptorLayouts;
 	  
 	struct {
 		VkPipeline pipeline;
@@ -191,12 +195,12 @@ private:
 
 	void createDrawPipeline() {
 		//pipeline creation
-		Application& app = Application::app();
-		auto vertShaderCode = app.compileGlslToSpv("Shaders/voxel.vert", shaderc_shader_kind::shaderc_vertex_shader);
-		auto fragShaderCode = app.compileGlslToSpv("Shaders/voxel.frag", shaderc_shader_kind::shaderc_fragment_shader);
+		VulkanUtils& utils = VulkanUtils::utils();
+		auto vertShaderCode = utils.compileGlslToSpv("Shaders/voxel.vert", shaderc_shader_kind::shaderc_vertex_shader);
+		auto fragShaderCode = utils.compileGlslToSpv("Shaders/voxel.frag", shaderc_shader_kind::shaderc_fragment_shader);
 
-		VkShaderModule vertShaderModule = app.createShaderModule(vertShaderCode);
-		VkShaderModule fragShaderModule = app.createShaderModule(fragShaderCode);
+		VkShaderModule vertShaderModule = utils.createShaderModule(vertShaderCode);
+		VkShaderModule fragShaderModule = utils.createShaderModule(fragShaderCode);
 
 		VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
 		vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -278,7 +282,7 @@ private:
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 		pipelineLayoutInfo.setLayoutCount = 1;
 		VkDescriptorSetLayout layouts[1] = {
-			core->getLayout(app.frames.front().data.globalDS)
+			descriptorLayouts[0]
 		};
 		pipelineLayoutInfo.pSetLayouts = layouts;
 		pipelineLayoutInfo.pushConstantRangeCount = 1;
@@ -319,9 +323,9 @@ private:
 		VkDescriptorSetLayout voxelDrawBufferLayout
 	) {
 		//pipeline creation
-		Application& app = Application::app();
-		auto computeShaderCode = app.compileGlslToSpv("shaders/clusters.comp", shaderc_shader_kind::shaderc_compute_shader);
-		VkShaderModule computeShaderModule = app.createShaderModule(computeShaderCode);
+		VulkanUtils& utils = VulkanUtils::utils();
+		auto computeShaderCode = utils.compileGlslToSpv("shaders/clusters.comp", shaderc_shader_kind::shaderc_compute_shader);
+		VkShaderModule computeShaderModule = utils.createShaderModule(computeShaderCode);
 
 		VkPipelineShaderStageCreateInfo computeShaderStageInfo{};
 		computeShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -333,8 +337,8 @@ private:
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 		pipelineLayoutInfo.setLayoutCount = 4;
 		VkDescriptorSetLayout layouts[4] = {
-			core->getLayout(app.frames.front().data.globalDS),
-			core->getLayout(app.frames.front().data.pointLightsDS),
+			descriptorLayouts[0],
+			descriptorLayouts[1],
 			chunkBufferDescriptorLayout,
 			voxelDrawBufferLayout
 		};
@@ -366,9 +370,12 @@ private:
 public:
 	VoxelRenderer() = default;
 	void init(
+		std::array<VkDescriptorSetLayout, 3> globalDescLayouts,
 		VkDescriptorSetLayout chunkBufferDescriptorLayout,
 		VkDescriptorSetLayout voxelDrawBufferLayout
 	){
+		this->core = VulkanUtils::utils().getCore();
+		descriptorLayouts = globalDescLayouts;
 		//createDrawPipeline();
 		createComputePipeline(chunkBufferDescriptorLayout, voxelDrawBufferLayout);
 	};

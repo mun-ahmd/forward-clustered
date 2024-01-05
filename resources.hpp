@@ -38,7 +38,7 @@ struct VertexInputDescription {
 	}
 };
 
-const std::vector<float> vertices = {
+inline const std::vector<float> vertices = {
 	// positions          // normals           // texture coords
 	-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
 	 0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  0.0f,
@@ -83,7 +83,7 @@ const std::vector<float> vertices = {
 	-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f
 };
 
-std::vector<Vertex3> getCubeVertices() {
+inline std::vector<Vertex3> getCubeVertices() {
 	auto start = reinterpret_cast<const Vertex3*>(vertices.data());
 	return std::vector<Vertex3>(start, start + vertices.size());
 }
@@ -105,6 +105,7 @@ class Buffer {
 public:
 	VkBuffer buffer;
 	VmaAllocation allocation;
+	VmaAllocationInfo allocattedInfo;
 
 	static std::shared_ptr<Buffer> create(VulkanCore core,
 		VkDeviceSize size,
@@ -124,7 +125,7 @@ public:
 		allocInfo.preferredFlags = preferredMemoryTypeFlags;
 
 		Buffer buf;
-		if (vmaCreateBuffer(core->allocator, &bufferInfo, &allocInfo, &buf.buffer, &buf.allocation, nullptr) != VK_SUCCESS) {
+		if (vmaCreateBuffer(core->allocator, &bufferInfo, &allocInfo, &buf.buffer, &buf.allocation, &buf.allocattedInfo) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create buffer!");
 		}
 		return std::shared_ptr<Buffer>(new Buffer(buf),
@@ -136,7 +137,7 @@ public:
 	}
 };
 
-void copyBuffer(VulkanCore core, VkCommandPool commandPool, std::vector<BufferCopyInfo> buffers) {
+inline void copyBuffer(VulkanCore core, VkCommandPool commandPool, std::vector<BufferCopyInfo> buffers) {
 	VkCommandBufferAllocateInfo allocInfo{};
 	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -159,7 +160,7 @@ void copyBuffer(VulkanCore core, VkCommandPool commandPool, std::vector<BufferCo
 	core->endSingleTimeCommands(commandPool, commandBuffer);
 }
 
-auto prepareStagingBuffer(VulkanCore core, const void* data, size_t dataSize) {
+inline auto prepareStagingBuffer(VulkanCore core, const void* data, size_t dataSize) {
 	auto stagingBuffer = Buffer::create(
 		core, dataSize,
 		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -292,7 +293,7 @@ public:
 			(VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT),
 			0
 		);
-		stagingBufMap = stagingBuf->allocation->GetMappedData();
+		stagingBufMap = stagingBuf->allocattedInfo.pMappedData;
 	}
 
 	uint32_t getResourceOffset() {
@@ -364,7 +365,7 @@ public:
 			(VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT),
 			0
 		);
-		auto stagingBufMap = stagingBuf->allocation->GetMappedData();
+		auto stagingBufMap = stagingBuf->allocattedInfo.pMappedData;
 		memcpy(stagingBufMap, &baseInfo, sizeof(BaseInfo));
 		memcpy(reinterpret_cast<char*>(stagingBufMap) + sizeof(BaseInfo), arrInfo, sizeof(ArrayInfo) * arrLen);
 		
@@ -402,7 +403,7 @@ public:
 			(VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT),
 			0
 		);
-		auto stagingBufMap = stagingBuf->allocation->GetMappedData();
+		auto stagingBufMap = stagingBuf->allocattedInfo.pMappedData;
 		memcpy(stagingBufMap, arrInfo, sizeof(ArrayInfo) * arrLen);
 		VkBufferCopy copier{};
 		copier.srcOffset = 0;
@@ -481,7 +482,8 @@ public:
 			(VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT),
 			0
 		);
-		auto stagingBufMap = stagingBuf->allocation->GetMappedData();
+
+		void* stagingBufMap = stagingBuf->allocattedInfo.pMappedData;
 		memcpy(stagingBufMap, arrInfo, sizeof(ArrayInfo) * arrLen);
 		VkBufferCopy copier{};
 		copier.srcOffset = 0;

@@ -1,4 +1,5 @@
 #pragma once
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <unordered_map>
 #include <functional>
@@ -12,7 +13,7 @@ struct UserPointerObject {
 	UserPointerObject(InputManager* inputManager) : inputManager(inputManager) {}
 };
 
-InputManager* getInputManager(GLFWwindow* window) {
+inline InputManager* getInputManager(GLFWwindow* window) {
 	return static_cast<UserPointerObject*>(glfwGetWindowUserPointer(window))->inputManager;
 }
 
@@ -54,20 +55,20 @@ public:
 
 };
 
-UserPointerObject* createUserPointerObject(GLFWwindow* window) {
+inline UserPointerObject* createUserPointerObject(GLFWwindow* window) {
 	InputManager* imanager = new InputManager(window);
 	UserPointerObject* obj = new UserPointerObject(imanager);
 	return obj;
 }
 
-void destroyUserPointerObject(GLFWwindow* window) {
+inline void destroyUserPointerObject(GLFWwindow* window) {
 	auto obj = static_cast<UserPointerObject*>(glfwGetWindowUserPointer(window));
 	delete obj->inputManager;
 	delete obj;
 	glfwSetWindowUserPointer(window, NULL);
 }
 
-GLFWwindow* createWindow(int width, int height) {
+inline GLFWwindow* createWindow(int width, int height) {
 	glfwInit();
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -82,7 +83,7 @@ GLFWwindow* createWindow(int width, int height) {
 	return window;
 }
 
-void destroyWindow(GLFWwindow* window) {
+inline void destroyWindow(GLFWwindow* window) {
 	destroyUserPointerObject(window);
 	glfwDestroyWindow(window);
 	glfwTerminate();
