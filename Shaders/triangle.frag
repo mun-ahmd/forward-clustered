@@ -31,4 +31,5 @@ void main(){
 			0.1 + cLight.color * max(0.0, dot(normal, cLight.position_radius.xyz - fragPos))
 		) * 0.1;
 	}
+	fragColor = vec4(1.0);
 }

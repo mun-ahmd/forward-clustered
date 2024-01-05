@@ -10,6 +10,12 @@ struct AABB{
 //     AABB clusters[];
 // };
 
+// ** 
+// **
+// **
+// **
+// **
+
 struct PL{
 	vec4 color;
 	vec4 position_radius;

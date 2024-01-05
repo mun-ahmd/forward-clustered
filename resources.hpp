@@ -419,6 +419,7 @@ public:
 		binding0.descriptorCount = 1;
 		binding0.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		binding0.stageFlags = shaderStageFlags;
+
 		VkDescriptorSetLayoutBinding binding1{};
 		binding1.binding = 1;
 		binding1.descriptorCount = 1;

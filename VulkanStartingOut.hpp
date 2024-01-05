@@ -10,6 +10,7 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_LEFT_HANDED
 
+#include <numeric>
 #include <iostream>
 #include <vector>
 #include <string>
@@ -30,6 +31,7 @@
 #include "resources.hpp"
 
 #include "imgui_helper.h"
+#include "CubeVoxel.h"
 
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 constexpr int lightCount = 10;
@@ -202,6 +204,11 @@ struct FrameData {
 	VkFence clusterCompFence;
 
 	VkCommandBuffer computeCommandBuffer;
+
+	VoxelChunkBuffer vcb;
+	VkDescriptorSet vcbDescriptorSet;
+	VoxelDrawBuffer vdb;
+	VkDescriptorSet vdbDescriptorSet;
 };
 
 typedef FrameBase<FrameData> Frame;
@@ -242,7 +249,8 @@ public:
 		swapChain.cleanupSwapChain();
 	}
 
-	VulkanCore getCore() { return core; }
+	inline VulkanCore getCore() { return core; }
+	inline VkCommandPool getCommandPool() { return commandPool; }
 
 	std::string readFile(std::string filePath) {
 		std::ifstream file;
@@ -285,6 +293,8 @@ public:
 		return shaderModule;
 	}
 
+	std::array<Frame, MAX_FRAMES_IN_FLIGHT> frames;
+	uint32_t current_frame = 0;
 
 private:
 	VulkanCore core;
@@ -307,9 +317,6 @@ private:
 
 	VkCommandPool commandPool;
 
-	std::array<Frame, MAX_FRAMES_IN_FLIGHT> frames;
-	uint32_t current_frame = 0;
-
 	shaderc::Compiler compiler = shaderc::Compiler();
 
 	std::vector<Mesh> meshes;
@@ -328,8 +335,67 @@ private:
 	float nearPlane = 0.1f;
 	float farPlane = 200.f;
 
+
+
 	void initMeshesMaterials() {
 		camera = CamHandler(core->window);
+		constexpr int chunkCount = 1;
+	
+		VoxelChunk chunks[chunkCount];
+		for (size_t i = 0; i < chunkCount; i++)
+		{
+			auto& chunk = chunks[i];
+			
+			int j = i + 1;
+			for (auto& [voxel, coord] : chunks[i]) {
+				*voxel = j * (int)glm::all(glm::equal(coord % (j+1), glm::ivec3(0)));
+			}
+		}
+
+		std::vector<unsigned int> cubeIndices(36);
+		std::iota(cubeIndices.begin(), cubeIndices.end(), 0);
+		auto cubeMeshData = MeshData<Vertex3>(getCubeVertices(), cubeIndices);
+		auto cubeMesh = Mesh(
+			core,
+			commandPool,
+			cubeMeshData
+		);
+
+		meshes.clear();
+		transforms.clear();
+		meshMatIndices.clear();
+		materials.clear();
+		for (int i = 0; i < chunkCount; i++) {
+			glm::vec3 baseTranslate = glm::vec3(
+				VoxelChunk::chunkSize.x * (float)chunkCount, 0.0f, 0.0f
+			);
+
+			for (auto&[voxel, coord] : chunks[i]) {
+				if (*voxel != 0) {
+					
+					meshes.push_back(cubeMesh);
+
+					transforms.push_back(
+						glm::translate(
+							glm::translate(
+								glm::scale(
+									glm::mat4(1.f),
+									glm::vec3(0.5)
+								),
+								baseTranslate
+							),
+							glm::vec3(coord)
+						)
+					);
+
+					meshMatIndices.push_back(*voxel - 1);
+				}
+			}
+			materials.push_back(Material::create(core, commandPool, randomMaterial()));
+		}
+
+
+		return;
 
 		auto loadedModel = loadGLTF("3DModels/cubeScene/cube.gltf").value();
 		meshes.reserve(loadedModel.meshData.meshes.size());
@@ -837,7 +903,7 @@ private:
 		rasterizer.rasterizerDiscardEnable = VK_FALSE;
 		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 		rasterizer.lineWidth = 1.0f;
-		rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+		rasterizer.cullMode = VK_CULL_MODE_NONE;
 		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 		rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -1045,8 +1111,8 @@ private:
 		rasterizer.depthClampEnable = VK_FALSE;
 		rasterizer.rasterizerDiscardEnable = VK_FALSE;
 		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-		rasterizer.lineWidth = 1.0f;
-		rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+		rasterizer.lineWidth = 10.0f;
+		rasterizer.cullMode = VK_CULL_MODE_NONE;
 		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 		rasterizer.depthBiasEnable = VK_FALSE;
 

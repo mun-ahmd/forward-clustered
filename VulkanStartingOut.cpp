@@ -1,4 +1,5 @@
 #include "VulkanStartingOut.hpp"
+#include "CubeVoxel.h"
 
 int main() {
 	Application& app = Application::app();
