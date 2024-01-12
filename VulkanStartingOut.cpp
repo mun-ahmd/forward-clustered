@@ -387,10 +387,18 @@ private:
 		frame->pointLightsDS = frame->pointLights.createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
 		frame->vcb.init(core, 16 * 16 * VoxelChunk::chunkVoxelCount);
+		VoxelChunk chunks[16 * 16];
+		for (auto& chunk : chunks) {
+			for (auto& t : chunk) {
+				// 0 for sky 1 for ground
+				*t.first = (t.second.y < 0);
+			}
+		}
+		frame->vcb.setChunks(chunks, 16 * 16);
 		frame->vcbDescriptorSet = frame->vcb.createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
-		frame->vdb.init(core, 100000);
-		frame->vdbDescriptorSet = frame->vdb.createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+		frame->vdb.init(core, 100000, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+		frame->vdbDescriptorSet = frame->vdb.createDescriptor(core, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
 		glm::uvec3 clusterSize = glm::uvec3(32, 32, 4);
 		//frame->clustersBuffer.init(core, sizeof(AABB) * clusterSize.x * clusterSize.y * clusterSize.z);
@@ -489,12 +497,29 @@ private:
 	void initVulkan() {
 		core = VulkanUtils::utils().getCore();
 		commandPool = VulkanUtils::utils().getCommandPool();
-		for (auto& frame : frames)
+
+		int i = 0;
+		for (auto& frame : frames) {
 			frame = Frame(
 				core, commandPool,
 				std::bind(&Application::frameInitializer, this, std::placeholders::_1),
 				std::bind(&Application::frameDestructor, this, std::placeholders::_1)
 			);
+
+			core->giveResourceName(
+				(uint64_t)frame.data.vcb.resourceBuf->buffer,
+				VK_OBJECT_TYPE_BUFFER,
+				std::string("voxel chunk buffer " + std::to_string(i)).c_str()
+			);
+
+			core->giveResourceName(
+				(uint64_t)frame.data.vdb.resourceBuf->buffer,
+				VK_OBJECT_TYPE_BUFFER,
+				std::string("voxel draw buffer " + std::to_string(i)).c_str()
+			);
+
+			i++;
+		}
 		auto swapCapabilities = core->querySwapChainSupport();
 		auto swapChainFormat = chooseSwapSurfaceFormat(swapCapabilities.formats);
 		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
@@ -515,7 +540,8 @@ private:
 			core->getLayout(materialsDescriptorSet)
 			}, 
 			core->getLayout(frames.front().data.vcbDescriptorSet),
-			core->getLayout(frames.front().data.vdbDescriptorSet)
+			core->getLayout(frames.front().data.vdbDescriptorSet),
+			renderPass
 		);
 
 	}
@@ -660,6 +686,26 @@ private:
 				vkCmdBindIndexBuffer(activeFrame.commandBuffer, meshes[i].indexBuffer->buffer, 0, VK_INDEX_TYPE_UINT16);
 				vkCmdDrawIndexed(activeFrame.commandBuffer, meshes[i].numIndices, 1, 0, 0, 0);
 			}
+			uint32_t dynamicOffset = 0;
+
+
+			vkCmdBindDescriptorSets(activeFrame.commandBuffer,
+				VK_PIPELINE_BIND_POINT_GRAPHICS, voxelRenderer.getDrawPipelineLayout(),
+				0, 2, globalAndLightsSet,
+				0, nullptr
+			);
+			vkCmdBindDescriptorSets(
+				activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+				voxelRenderer.getDrawPipelineLayout(), 2, 1, &materialsDescriptorSet, 1, &dynamicOffset
+			);
+
+			voxelRenderer.recordRenderCommands(
+				activeFrame.commandBuffer,
+				activeFrame.data.vdb,
+				activeFrame.data.vdbDescriptorSet,
+				viewport,
+				scissor
+			);
 
 			imgui.drawWithinRenderPass(activeFrame.commandBuffer);
 
@@ -685,6 +731,14 @@ private:
 				this->imgui.newFrame();
 				this->imgui.test();
 				computeClusters(frames[current_frame]);
+
+				vkWaitForFences(
+					core->device,
+					1,
+					&frames[current_frame].data.clusterCompFence,
+					true,
+					1000 * 1000 * 1000
+				);
 
 				frames[current_frame].performFrame(
 					swapChain,
@@ -717,18 +771,27 @@ private:
 			throw std::runtime_error("failed to begin recording command buffer!");
 		}
 
-		vkCmdBindPipeline(anyFrame.data.computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clusterComp.pipe);
-		glm::vec4 zBoundsVec = glm::vec4(nearPlane, farPlane, 0.0, 0.0);
-		vkCmdPushConstants(anyFrame.data.computeCommandBuffer, clusterComp.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(glm::vec4), &zBoundsVec);
-		VkDescriptorSet descriptors[3] = { anyFrame.data.globalDS, anyFrame.data.pointLightsDS, anyFrame.data.clusterCompDS };
-		vkCmdBindDescriptorSets(
-			anyFrame.data.computeCommandBuffer,
-			VK_PIPELINE_BIND_POINT_COMPUTE,
-			clusterComp.layout, 0, 3, descriptors,
-			0, 0
-		);
+		//vkCmdBindPipeline(anyFrame.data.computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clusterComp.pipe);
+		//glm::vec4 zBoundsVec = glm::vec4(nearPlane, farPlane, 0.0, 0.0);
+		//vkCmdPushConstants(anyFrame.data.computeCommandBuffer, clusterComp.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(glm::vec4), &zBoundsVec);
+		//VkDescriptorSet descriptors[3] = { anyFrame.data.globalDS, anyFrame.data.pointLightsDS, anyFrame.data.clusterCompDS };
+		//vkCmdBindDescriptorSets(
+		//	anyFrame.data.computeCommandBuffer,
+		//	VK_PIPELINE_BIND_POINT_COMPUTE,
+		//	clusterComp.layout, 0, 3, descriptors,
+		//	0, 0
+		//);
 
-		vkCmdDispatch(anyFrame.data.computeCommandBuffer, 32, 32, 4);
+		//vkCmdDispatch(anyFrame.data.computeCommandBuffer, 32, 32, 4);
+
+		//TODO put voxel commands here to test
+		this->voxelRenderer.recordComputeCommands(
+			anyFrame.data.computeCommandBuffer,
+			anyFrame.data.vcb,
+			anyFrame.data.vcbDescriptorSet,
+			anyFrame.data.vdb,
+			anyFrame.data.vdbDescriptorSet
+		);
 
 		if (vkEndCommandBuffer(anyFrame.data.computeCommandBuffer) != VK_SUCCESS) {
 			throw std::runtime_error("failed to record command buffer!");
@@ -1042,7 +1105,7 @@ private:
 		rasterizer.depthClampEnable = VK_FALSE;
 		rasterizer.rasterizerDiscardEnable = VK_FALSE;
 		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-		rasterizer.lineWidth = 10.0f;
+		rasterizer.lineWidth = 1.0f;
 		rasterizer.cullMode = VK_CULL_MODE_NONE;
 		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 		rasterizer.depthBiasEnable = VK_FALSE;

@@ -11,15 +11,18 @@
 
 layout (local_size_x = LOCAL_SIZE_X, local_size_y = LOCAL_SIZE_Y, local_size_z = LOCAL_SIZE_Z) in;
 
-layout(std430, set = 2, binding = 0) readonly buffer VoxelData{
+layout(std430, set = 0, binding = 0) readonly buffer VoxelData{
 	int array[];    //voxel material id
 } voxels;
 
-layout(std140, set = 3, binding = 0) buffer VoxelDrawCount{
-    int count;
+layout(std140, set = 1, binding = 0) buffer VoxelDrawCount{
+    uint vertexCount;
+	uint instanceCount;
+	uint firstVertex;
+	uint firstInstance;
 } voxelDrawCount;
 
-layout(std140, set = 3, binding = 1) writeonly buffer VoxelDrawBuffer{
+layout(std140, set = 1, binding = 1) writeonly buffer VoxelDrawBuffer{
     ivec4 array[];
 } drawPositionMat;
 
@@ -38,41 +41,45 @@ int getVoxelMatWithinChunk(ivec3 voxelID){
     return isWithinChunkBounds * voxels.array[isWithinChunkBounds * getVoxelIndex(voxelID)];
 }
 
-int getMask(out int currMatID){
-    ivec3 ID = ivec3(
-        gl_LocalInvocationID.x,
-        gl_WorkGroupID.y / (CHUNK_DEPTH / LOCAL_SIZE_Z),
-        gl_LocalInvocationID.z + (gl_WorkGroupID % (CHUNK_DEPTH / LOCAL_SIZE_Z)) * gl_WorkGroupSize.z
-    );
+// int getMask(out int currMatID){
+    //ID is index within chunk
+    //fancy math to make sure you can do one voxel per thread
+    // ivec3 ID = ivec3(
+    //     gl_LocalInvocationID.x,
+    //     gl_WorkGroupID.y / (CHUNK_DEPTH / LOCAL_SIZE_Z),
+    //     gl_LocalInvocationID.z + (gl_WorkGroupID.y % (CHUNK_DEPTH / LOCAL_SIZE_Z)) * (gl_WorkGroupSize.z / 2)
+    // );
+// 
+//     currMatID = voxels.array[getVoxelIndex(ID)];
+//     // front back left right top bottom
+//     int faces[6] = {
+//         getVoxelMatWithinChunk(ID + ivec3(0, 0, -1)),
+//         getVoxelMatWithinChunk(ID + ivec3(0, 0, 1)),
 
-    currMatID = voxels.array[getVoxelIndex(ID)];
-    // front back left right top bottom
-    int faces[6] = {
-        getVoxelMatWithinChunk(ID + ivec3(0, 0, -1)),
-        getVoxelMatWithinChunk(ID + ivec3(0, 0, 1)),
-
-        getVoxelMatWithinChunk(ID + ivec3(-1, 0, 0)),
-        getVoxelMatWithinChunk(ID + ivec3(1, 0, 0)),
+//         getVoxelMatWithinChunk(ID + ivec3(-1, 0, 0)),
+//         getVoxelMatWithinChunk(ID + ivec3(1, 0, 0)),
         
-        getVoxelMatWithinChunk(ID + ivec3(0, 1, 0)),
-        getVoxelMatWithinChunk(ID + ivec3(0, -1, 0)),
-    };
+//         getVoxelMatWithinChunk(ID + ivec3(0, 1, 0)),
+//         getVoxelMatWithinChunk(ID + ivec3(0, -1, 0)),
+//     };
 
-    int mask = 0;
-    for(int i = 0; i < 6; i++){
-        //if voxel neighbouring that face is not empty (material is 0) then mask it
-        mask |= (int(faces[i] != 0) << i);
-    }
+//     int mask = 0;
+//     for(int i = 0; i < 6; i++){
+//         //if voxel neighbouring that face is not empty (material is 0) then mask it
+//         mask |= (int(faces[i] != 0) << i);
+//     }
 
-    return 0;
-}
+//     return mask;
+// }
 
 void main(){
+    //ID is index within chunk
+    //fancy math to make sure you can do one voxel per thread
     ivec3 ID = ivec3(
         gl_LocalInvocationID.x,
         gl_WorkGroupID.y / (CHUNK_DEPTH / LOCAL_SIZE_Z),
-        gl_LocalInvocationID.z + (gl_WorkGroupID % (CHUNK_DEPTH / LOCAL_SIZE_Z)) * gl_WorkGroupSize.z
-    );
+        gl_LocalInvocationID.z + (gl_WorkGroupID.y % (CHUNK_DEPTH / LOCAL_SIZE_Z)) * (gl_WorkGroupSize.z / 2)
+    );4
 
     int currMatID = voxels.array[getVoxelIndex(ID)];
     // front back left right top bottom
@@ -93,14 +100,18 @@ void main(){
         mask |= (int(faces[i] != 0) << i);
     }
     
-    ivec3 position =  (ivec3(gl_WorkGroupID) - ivec3(gl_NumWorkGroups/2)) * ivec3(CHUNK_WIDTH, 0, CHUNK_DEPTH);
-    position += (ivec3(ID) - ivec3(CHUNK_WIDTH, CHUNK_HEIGHT, CHUNK_DEPTH)/2);
+    // ivec3 position =  (ivec3(gl_WorkGroupID) - ivec3(gl_NumWorkGroups/2)) * ivec3(CHUNK_WIDTH, 0, CHUNK_DEPTH);
+    ivec3 position =  (ivec3(gl_WorkGroupID)) * ivec3(CHUNK_WIDTH, 0, CHUNK_DEPTH);
+    // position += (ivec3(ID) - ivec3(CHUNK_WIDTH, CHUNK_HEIGHT, CHUNK_DEPTH)/2);
+    position = (ivec3(ID));
+    // ivec3 position =  (ivec3(gl_WorkGroupID) - ivec3(gl_NumWorkGroups/2)) * ivec3(1, 0, 1);
 
     int encodedMaterialID = mask << (32 - 6);
     encodedMaterialID |= currMatID & ~(0x3f << (32 - 6));
     
     bool isVisible = ((currMatID != 0) && (mask != 0x3f));
-    int index = atomicAdd(voxelDrawCount.count, int(isVisible));
+    // bool isVisible = ((currMatID != 0));
+    uint index = atomicAdd(voxelDrawCount.instanceCount, uint(isVisible));
     if(isVisible){
         drawPositionMat.array[index] = ivec4(position, encodedMaterialID);
     }

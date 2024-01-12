@@ -14,7 +14,7 @@ layout(set = 0, binding = 0) uniform  Matrices{
     mat4 projView;
 } matrices;
 
-layout(std430, set = 3, binding = 0) readonly buffer Voxel{
+layout(std140, set = 3, binding = 1) readonly buffer Voxel{
     ivec4 array[];
 } position_mats;
 
@@ -36,7 +36,7 @@ void main(){
     fragNorm = inNormal;
     ivec4 position_mat = position_mats.array[gl_InstanceIndex];
     
-    fragPos = vec4(inPosition + position_mat.xyz, 1.0).xyz;
+    fragPos = vec4( (inPosition + vec3(position_mat.xyz) + 0.5)/10 , 1.0).xyz;
     
     // encodedMaterialID (32 bits) is in a format where:
     // the faceMask is the Most Significant 6 bits and
@@ -48,6 +48,7 @@ void main(){
     int faceMask =  encodedMaterialID >> (32 - 6);
     int faceIndex = gl_VertexIndex % 6;
     float isFaceMasked = float(bool(encodedMaterialID & (1 << faceIndex)));
+    // isFaceMasked = 0.0;
     
     gl_Position = matrices.projView * vec4(fragPos, 1.0);
     //if the face mask is set to 1, the position is set to 1,1,1,0 which will be discarded during clipping

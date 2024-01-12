@@ -30,9 +30,16 @@ const bool enableValidationLayers = false;
 const bool enableValidationLayers = true;
 #endif
 
+template<typename functionType>
+functionType LOAD_VULKAN_FUNCTION(VkInstance instance, const char* functionName) {
+	return (functionType)vkGetInstanceProcAddr(instance, functionName);
+}
+#define loadVulkanInstanceFunction(instance, functionName) LOAD_VULKAN_FUNCTION<PFN_##functionName>(instance, #functionName)
+
 inline VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
 	auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
 	if (func != nullptr) {
+		//func returns VkResult
 		return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
 	}
 	else {
@@ -285,6 +292,20 @@ private:
 		return extensions;
 	}
 
+	void loadExtensionFunctions() {
+		VkDebugUtils.CmdBeginDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkCmdBeginDebugUtilsLabelEXT);
+		VkDebugUtils.CmdEndDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkCmdEndDebugUtilsLabelEXT);
+		VkDebugUtils.CmdInsertDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkCmdInsertDebugUtilsLabelEXT);
+		VkDebugUtils.CreateDebugUtilsMessengerEXT = loadVulkanInstanceFunction(instance, vkCreateDebugUtilsMessengerEXT);
+		VkDebugUtils.DestroyDebugUtilsMessengerEXT = loadVulkanInstanceFunction(instance, vkDestroyDebugUtilsMessengerEXT);
+		VkDebugUtils.QueueBeginDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkQueueBeginDebugUtilsLabelEXT);
+		VkDebugUtils.QueueEndDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkQueueEndDebugUtilsLabelEXT);
+		VkDebugUtils.QueueInsertDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkQueueInsertDebugUtilsLabelEXT);
+		VkDebugUtils.SetDebugUtilsObjectNameEXT = loadVulkanInstanceFunction(instance, vkSetDebugUtilsObjectNameEXT);
+		VkDebugUtils.SetDebugUtilsObjectTagEXT = loadVulkanInstanceFunction(instance, vkSetDebugUtilsObjectTagEXT);
+		VkDebugUtils.SubmitDebugUtilsMessageEXT = loadVulkanInstanceFunction(instance, vkSubmitDebugUtilsMessageEXT);
+	}
+
 	bool checkValidationLayerSupport() {
 		uint32_t layerCount;
 		vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
@@ -336,6 +357,7 @@ public:
 		createSurface();
 		pickPhysicalDevice();
 		createLogicalDevice();
+		loadExtensionFunctions();
 		mCreateVmaAllocator();
 		createDescriptorPool();
 	}
@@ -537,6 +559,36 @@ public:
 			throw std::runtime_error("failed to create semaphores!");
 		}
 		return fence;
+	}
+
+	struct {
+		PFN_vkCmdBeginDebugUtilsLabelEXT CmdBeginDebugUtilsLabelEXT;
+		PFN_vkCmdEndDebugUtilsLabelEXT CmdEndDebugUtilsLabelEXT;
+		PFN_vkCmdInsertDebugUtilsLabelEXT CmdInsertDebugUtilsLabelEXT;
+		PFN_vkCreateDebugUtilsMessengerEXT CreateDebugUtilsMessengerEXT;
+		PFN_vkDestroyDebugUtilsMessengerEXT DestroyDebugUtilsMessengerEXT;
+		PFN_vkQueueBeginDebugUtilsLabelEXT QueueBeginDebugUtilsLabelEXT;
+		PFN_vkQueueEndDebugUtilsLabelEXT QueueEndDebugUtilsLabelEXT;
+		PFN_vkQueueInsertDebugUtilsLabelEXT QueueInsertDebugUtilsLabelEXT;
+		PFN_vkSetDebugUtilsObjectNameEXT SetDebugUtilsObjectNameEXT;
+		PFN_vkSetDebugUtilsObjectTagEXT SetDebugUtilsObjectTagEXT;
+		PFN_vkSubmitDebugUtilsMessageEXT SubmitDebugUtilsMessageEXT;
+	} VkDebugUtils;
+	void giveResourceName(uint64_t object, VkObjectType objectType, const char* name) {
+		// cast Vk[Resource] object to uint64_t
+		VkDebugMarkerObjectNameInfoEXT debugMarker{};
+		debugMarker.object = object;
+		debugMarker.objectType = VkDebugReportObjectTypeEXT::VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT;
+		debugMarker.sType = VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT;
+		debugMarker.pObjectName = name;
+
+		VkDebugUtilsObjectNameInfoEXT debugNameInfo{};
+		debugNameInfo.objectHandle = object;
+		debugNameInfo.objectType = objectType;
+		debugNameInfo.pObjectName = name;
+		debugNameInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+
+		VkDebugUtils.SetDebugUtilsObjectNameEXT(device, &debugNameInfo);
 	}
 
 	VkDescriptorSet createDescriptorSet(std::vector<VkDescriptorSetLayoutBinding>&& bindings) {

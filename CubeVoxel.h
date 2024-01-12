@@ -136,8 +136,8 @@ public:
 		for (size_t i = 0; i < count; i++) {
 			this->updateArray(
 				utils.getCore(), utils.getCommandPool(),
-				chunks[i].data(), VoxelChunk::chunkVoxelCount * sizeof(int),
-				VoxelChunk::chunkVoxelCount * sizeof(int) * i
+				chunks[i].data(), VoxelChunk::chunkVoxelCount,
+				VoxelChunk::chunkVoxelCount * i
 			);
 		}
 	}
@@ -156,14 +156,17 @@ public:
 typedef glm::ivec4 VoxelDrawInfo;
 
 struct alignas(sizeof(VoxelDrawInfo)) VoxelDrawCount {
-	int count;
+	uint32_t    vertexCount;
+	uint32_t    instanceCount;
+	uint32_t    firstVertex;
+	uint32_t    firstInstance;
 };
 
 class VoxelDrawBuffer : public IAResource<VoxelDrawCount, VoxelDrawInfo> {
 public:
 	void initializeCountToZero() {
 		//set count to zero
-		VoxelDrawCount zeroDrawCount = { 0 };
+		VoxelDrawCount zeroDrawCount = { 36, 0, 0, 0 };
 		this->updateBase(
 			VulkanUtils::utils().getCore(),
 			VulkanUtils::utils().getCommandPool(),
@@ -180,20 +183,21 @@ private:
 	//the global descriptor sets
 	// matrices, lights, materials
 	std::array<VkDescriptorSetLayout, 3> descriptorLayouts;
-	  
+
 	struct {
 		VkPipeline pipeline;
 		VkPipelineLayout layout;
-		VkRenderPass renderpass;
+		//VkRenderPass renderpass_internal;
 	} draw;
 
 	struct {
 		VkPipeline pipeline;
 		VkPipelineLayout layout;
-		VkRenderPass renderpass;
 	} compute;
 
-	void createDrawPipeline() {
+	Mesh cubeMesh;
+
+	void createDrawPipeline(VkRenderPass renderpass, VkDescriptorSetLayout voxelDrawBufferLayout) {
 		//pipeline creation
 		VulkanUtils& utils = VulkanUtils::utils();
 		auto vertShaderCode = utils.compileGlslToSpv("Shaders/voxel.vert", shaderc_shader_kind::shaderc_vertex_shader);
@@ -218,13 +222,14 @@ private:
 
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
 		auto bindingDescription = VertexInputDescription::getBindingDescription();
-		//only taking position attribute
-		auto attributeDescriptions = VertexInputDescription::getAttributeDescriptions()[0];
 		vertexInputInfo.vertexBindingDescriptionCount = 1;
-		vertexInputInfo.vertexAttributeDescriptionCount = 1;
 		vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-		vertexInputInfo.pVertexAttributeDescriptions = &attributeDescriptions;
+
+		auto attributeDescriptions = VertexInputDescription::getAttributeDescriptions();
+		vertexInputInfo.vertexAttributeDescriptionCount = 3;
+		vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
 		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -280,13 +285,16 @@ private:
 
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = 1;
-		VkDescriptorSetLayout layouts[1] = {
-			descriptorLayouts[0]
+		pipelineLayoutInfo.setLayoutCount = 4;
+		VkDescriptorSetLayout layouts[4] = {
+			descriptorLayouts[0],
+			descriptorLayouts[1],
+			descriptorLayouts[2],
+			voxelDrawBufferLayout
 		};
 		pipelineLayoutInfo.pSetLayouts = layouts;
-		pipelineLayoutInfo.pushConstantRangeCount = 1;
-		pipelineLayoutInfo.pPushConstantRanges = &push_constant;
+		pipelineLayoutInfo.pushConstantRangeCount = 0;
+		pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
 		this->draw.layout = core->createPipelineLayout(pipelineLayoutInfo);
 
@@ -307,8 +315,8 @@ private:
 
 		pipelineInfo.layout = this->draw.layout;
 
-		pipelineInfo.renderPass = this->draw.renderpass;
-		pipelineInfo.subpass = 0;
+		pipelineInfo.renderPass = renderpass;
+		pipelineInfo.subpass = 1;
 		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
 		pipelineInfo.basePipelineIndex = -1; // Optional
 
@@ -324,7 +332,7 @@ private:
 	) {
 		//pipeline creation
 		VulkanUtils& utils = VulkanUtils::utils();
-		auto computeShaderCode = utils.compileGlslToSpv("shaders/clusters.comp", shaderc_shader_kind::shaderc_compute_shader);
+		auto computeShaderCode = utils.compileGlslToSpv("shaders/voxel.comp", shaderc_shader_kind::shaderc_compute_shader);
 		VkShaderModule computeShaderModule = utils.createShaderModule(computeShaderCode);
 
 		VkPipelineShaderStageCreateInfo computeShaderStageInfo{};
@@ -335,10 +343,8 @@ private:
 
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = 4;
-		VkDescriptorSetLayout layouts[4] = {
-			descriptorLayouts[0],
-			descriptorLayouts[1],
+		pipelineLayoutInfo.setLayoutCount = 2;
+		VkDescriptorSetLayout layouts[2] = {
 			chunkBufferDescriptorLayout,
 			voxelDrawBufferLayout
 		};
@@ -350,7 +356,6 @@ private:
 		//pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
 		pipelineLayoutInfo.pushConstantRangeCount = 0;
-		pipelineLayoutInfo.pPushConstantRanges = nullptr;
 		this->compute.layout = core->createPipelineLayout(pipelineLayoutInfo);
 
 		VkComputePipelineCreateInfo pipelineInfo{};
@@ -372,19 +377,63 @@ public:
 	void init(
 		std::array<VkDescriptorSetLayout, 3> globalDescLayouts,
 		VkDescriptorSetLayout chunkBufferDescriptorLayout,
-		VkDescriptorSetLayout voxelDrawBufferLayout
+		VkDescriptorSetLayout voxelDrawBufferLayout,
+		VkRenderPass renderpass_ext
 	){
 		this->core = VulkanUtils::utils().getCore();
 		descriptorLayouts = globalDescLayouts;
-		//createDrawPipeline();
+		createDrawPipeline(renderpass_ext, voxelDrawBufferLayout);
 		createComputePipeline(chunkBufferDescriptorLayout, voxelDrawBufferLayout);
+		
+		std::vector<unsigned int>indices(36);
+		std::iota(indices.begin(), indices.end(), 0);
+		MeshData<Vertex3> cubeMeshData(getCubeVertices(), indices);
+		cubeMesh = Mesh(core, VulkanUtils::utils().getCommandPool(), cubeMeshData);
 	};
+
+	VkPipelineLayout getDrawPipelineLayout() {
+		return draw.layout;
+	}
 
 	void recordRenderCommands(
 		VkCommandBuffer& commandBuffer,
-		const VoxelChunk* chunks,
-		size_t numChunks) {
+		VoxelDrawBuffer& vdb, VkDescriptorSet vdbDescriptorSet,
+		VkViewport viewport, VkRect2D scissor) {
+		//ensure renderpass is already started
+		//ensure that all 3 descriptors global, lights, materials are bound before calling
 
+		VkDebugUtilsLabelEXT label{};
+		label.pLabelName = "Voxel Render start";
+		label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+		label.color[1] = 1.0;
+		label.color[3] = 1.0;
+		core->VkDebugUtils.CmdBeginDebugUtilsLabelEXT(commandBuffer, &label);
+
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.pipeline);
+
+		vkCmdBindDescriptorSets(commandBuffer,
+			VK_PIPELINE_BIND_POINT_GRAPHICS, draw.layout,
+			3, 1, &vdbDescriptorSet,
+			0, nullptr
+		);
+
+		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+		//make a model view matrix for rendering the object
+		//camera position
+
+		VkDeviceSize offset = 0;
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &cubeMesh.vertexBuffer->buffer, &offset);
+		vkCmdDrawIndirect(
+			commandBuffer,
+			vdb.resourceBuf->buffer,
+			vdb.getBaseInfoOffset(),
+			1,
+			0	//stride does not matter here
+		);
+		core->VkDebugUtils.CmdEndDebugUtilsLabelEXT(commandBuffer);
 	}
 
 	void recordComputeCommands(
@@ -392,16 +441,21 @@ public:
 		VoxelChunkBuffer& vcb, VkDescriptorSet vcbDescriptorSet,
 		VoxelDrawBuffer& vdb, VkDescriptorSet vdbDescriptorSet
 	){
+		vdb.initializeCountToZero();
+
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute.pipeline);
 		VkDescriptorSet descriptors[2] = { vcbDescriptorSet, vdbDescriptorSet };
 		vkCmdBindDescriptorSets(
 			commandBuffer,
 			VK_PIPELINE_BIND_POINT_COMPUTE,
-			compute.layout, 2, 2, descriptors,
+			compute.layout, 0, 2, descriptors,
 			0, 0
 		);
 
-		vkCmdDispatch(commandBuffer, 16, 16, 4);
+		int yDispatchCount = 
+			VoxelChunk::chunkSize.y *
+			((VoxelChunk::chunkSize.z * VoxelChunk::chunkSize.x) / 128);
+		vkCmdDispatch(commandBuffer, 16, yDispatchCount, 16);
 	}
 
 };

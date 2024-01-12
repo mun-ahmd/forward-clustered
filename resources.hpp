@@ -3,6 +3,7 @@
 #include "MeshLoader.h"
 #include <vector>
 #include <array>
+#include <string.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -40,6 +41,7 @@ struct VertexInputDescription {
 
 inline const std::vector<float> vertices = {
 	// positions          // normals           // texture coords
+	//front
 	-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
 	 0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  0.0f,
 	 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
@@ -47,6 +49,7 @@ inline const std::vector<float> vertices = {
 	-0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  1.0f,
 	-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
 
+	//back
 	-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
 	 0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  0.0f,
 	 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,
@@ -54,6 +57,7 @@ inline const std::vector<float> vertices = {
 	-0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  1.0f,
 	-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
 
+	//left
 	-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
 	-0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
 	-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
@@ -61,6 +65,7 @@ inline const std::vector<float> vertices = {
 	-0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
 	-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
 
+	//right
 	 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
 	 0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
 	 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
@@ -68,19 +73,21 @@ inline const std::vector<float> vertices = {
 	 0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
 	 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
 
+	 //top
+	 -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f,
+	  0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  1.0f,
+	  0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
+	  0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
+	 -0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f,
+	 -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f
+
+	 //bottom
 	-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
 	 0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  1.0f,
 	 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
 	 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
 	-0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  0.0f,
 	-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
-
-	-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f,
-	 0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  1.0f,
-	 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
-	 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
-	-0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f,
-	-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f
 };
 
 inline std::vector<Vertex3> getCubeVertices() {
@@ -347,17 +354,21 @@ public:
 	std::shared_ptr<Buffer> resourceBuf;
 	uint32_t maxLength;
 
-	void init(VulkanCore core, uint32_t maximumResourcesValue = 100) {
+	void init(VulkanCore core, uint32_t maximumResourcesValue = 100, VkBufferUsageFlagBits additionalBufferUsageFlags = (VkBufferUsageFlagBits)0) {
 		maxLength = maximumResourcesValue;
 		resourceBuf = Buffer::create(
 			core,
 			sizeof(BaseInfo) + maxLength * sizeof(ArrayInfo),
-			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, 0
+			additionalBufferUsageFlags | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, 0
 		);
 	}
 
+	VkDeviceSize getBaseInfoOffset() {
+		return 0;
+	}
+
 	void updateWhole(VulkanCore core, VkCommandPool pool, BaseInfo baseInfo, ArrayInfo* arrInfo, size_t arrLen, size_t arrOffset) {
-		assert(arrOffset + arrLen < maxLength);
+		assert(arrOffset + arrLen <= maxLength, "Buffer array updation out of bounds");
 		auto stagingBuf = Buffer::create(
 			core,
 			sizeof(BaseInfo) + arrLen * sizeof(ArrayInfo),
@@ -395,7 +406,7 @@ public:
 	}
 
 	void updateArray(VulkanCore core, VkCommandPool pool, ArrayInfo* arrInfo, size_t arrLen, size_t arrOffset) {
-		assert(arrOffset + arrLen < maxLength);
+		assert(arrOffset + arrLen <= maxLength, "Buffer array updation out of bounds");
 		auto stagingBuf = Buffer::create(
 			core,
 			arrLen * sizeof(ArrayInfo),
@@ -474,7 +485,7 @@ public:
 	}
 
 	void updateArray(VulkanCore core, VkCommandPool pool, ArrayInfo* arrInfo, size_t arrLen, size_t arrOffset) {
-		assert(arrOffset + arrLen < maxLength);
+		assert(arrOffset + arrLen <= maxLength, "Buffer array updation out of bounds");
 		auto stagingBuf = Buffer::create(
 			core,
 			arrLen * sizeof(ArrayInfo),
@@ -484,6 +495,7 @@ public:
 		);
 
 		void* stagingBufMap = stagingBuf->allocattedInfo.pMappedData;
+		int a = sizeof(ArrayInfo);
 		memcpy(stagingBufMap, arrInfo, sizeof(ArrayInfo) * arrLen);
 		VkBufferCopy copier{};
 		copier.srcOffset = 0;

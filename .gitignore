@@ -4,3 +4,7 @@ VulkanStartingOut.vcxproj.user
 VulkanStartingOut.vcxproj
 3DModels/
 x64/
+Shaders/
+!Shaders/*.vert
+!Shaders/*.frag
+!Shaders/*.comp

@@ -6,23 +6,23 @@ layout(location = 2) in flat int materialID;
 
 layout(location = 0) out vec4 fragColor;
 
-// struct PL{
-// 	vec4 color;
-// 	vec4 position_radius;
-// };
+struct PL{
+	vec4 color;
+	vec4 position_radius;
+};
 
-// layout(set = 1, binding = 0) readonly buffer LightsCount{
-// 	int val;
-// } lightsCount;
+layout(set = 1, binding = 0) readonly buffer LightsCount{
+	int val;
+} lightsCount;
 
-// layout(set = 1, binding = 1) readonly buffer LightsData{
-// 	PL arr[];
-// } lights;
+layout(set = 1, binding = 1) readonly buffer LightsData{
+	PL arr[];
+} lights;
 
-// layout(set = 2, binding = 0) uniform  Materials{
-// 	vec4 diffuseColor;
-// 	vec4 specularGlossiness;
-// } material;
+layout(set = 2, binding = 0) uniform  Materials{
+	vec4 diffuseColor;
+	vec4 specularGlossiness;
+} material;
 
 void main(){
 	// vec3 normal = normalize(fragNorm);
