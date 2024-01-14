@@ -245,7 +245,7 @@ private:
 		rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
 		rasterizer.depthClampEnable = VK_FALSE;
 		rasterizer.rasterizerDiscardEnable = VK_FALSE;
-		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+		rasterizer.polygonMode = VK_POLYGON_MODE_LINE;
 		rasterizer.lineWidth = 1.0f;
 		//todo change to cull 3 out of 6 faces of a cube
 		rasterizer.cullMode = VK_CULL_MODE_NONE;
@@ -452,10 +452,7 @@ public:
 			0, 0
 		);
 
-		int yDispatchCount = 
-			VoxelChunk::chunkSize.y *
-			((VoxelChunk::chunkSize.z * VoxelChunk::chunkSize.x) / 128);
-		vkCmdDispatch(commandBuffer, 16, yDispatchCount, 16);
+		vkCmdDispatch(commandBuffer, 4, VoxelChunk::chunkSize.y, 4);
 	}
 
 };

@@ -4,15 +4,15 @@
 #define CHUNK_HEIGHT 256
 #define CHUNK_DEPTH 16
 
-//note: maximum chunk width will be 128 voxels and minimum will be such that 128 / chunk width will not be greater than chunk depth
-#define LOCAL_SIZE_X CHUNK_WIDTH
+//note: maximum chunk depth will be 128 voxels and minimum will be such that 128 / chunk depth will not be greater than chunk width
+#define LOCAL_SIZE_X (128 / CHUNK_DEPTH)
 #define LOCAL_SIZE_Y 1
-#define LOCAL_SIZE_Z (128 / CHUNK_WIDTH)
+#define LOCAL_SIZE_Z CHUNK_DEPTH
 
 layout (local_size_x = LOCAL_SIZE_X, local_size_y = LOCAL_SIZE_Y, local_size_z = LOCAL_SIZE_Z) in;
 
 layout(std430, set = 0, binding = 0) readonly buffer VoxelData{
-	int array[];    //voxel material id
+	uint array[];    //voxel material id
 } voxels;
 
 layout(std140, set = 1, binding = 0) buffer VoxelDrawCount{
@@ -23,96 +23,84 @@ layout(std140, set = 1, binding = 0) buffer VoxelDrawCount{
 } voxelDrawCount;
 
 layout(std140, set = 1, binding = 1) writeonly buffer VoxelDrawBuffer{
-    ivec4 array[];
+    uvec4 array[];
 } drawPositionMat;
 
-uint getVoxelIndex(ivec3 voxelID){
-    uint chunkIndex = gl_WorkGroupID.x + gl_WorkGroupID.z * gl_NumWorkGroups.x; 
+uint getVoxelIndex(uvec3 voxelID){
+    uint chunkIndex = gl_WorkGroupID.z + gl_WorkGroupID.x * gl_NumWorkGroups.z; 
     uint voxelIndex = voxelID.x + voxelID.z * CHUNK_WIDTH + voxelID.y * CHUNK_DEPTH * CHUNK_WIDTH;
     return chunkIndex * CHUNK_WIDTH * CHUNK_HEIGHT * CHUNK_DEPTH + voxelIndex;
 }
 
-int getVoxelMatWithinChunk(ivec3 voxelID){
+uint getVoxelMatWithinChunk(ivec3 voxelID){
     int isWithinChunkBounds = int(!(
         any(lessThan(voxelID, ivec3(0, 0, 0))) || 
-        any(greaterThan(voxelID, ivec3(CHUNK_WIDTH, CHUNK_HEIGHT, CHUNK_DEPTH)))
+        any(greaterThanEqual(voxelID, ivec3(CHUNK_WIDTH, CHUNK_HEIGHT, CHUNK_DEPTH)))
     ));
     //if out of chunk bounds return zero, else return material
     return isWithinChunkBounds * voxels.array[isWithinChunkBounds * getVoxelIndex(voxelID)];
 }
 
-// int getMask(out int currMatID){
-    //ID is index within chunk
-    //fancy math to make sure you can do one voxel per thread
-    // ivec3 ID = ivec3(
-    //     gl_LocalInvocationID.x,
-    //     gl_WorkGroupID.y / (CHUNK_DEPTH / LOCAL_SIZE_Z),
-    //     gl_LocalInvocationID.z + (gl_WorkGroupID.y % (CHUNK_DEPTH / LOCAL_SIZE_Z)) * (gl_WorkGroupSize.z / 2)
-    // );
-// 
-//     currMatID = voxels.array[getVoxelIndex(ID)];
-//     // front back left right top bottom
-//     int faces[6] = {
-//         getVoxelMatWithinChunk(ID + ivec3(0, 0, -1)),
-//         getVoxelMatWithinChunk(ID + ivec3(0, 0, 1)),
-
-//         getVoxelMatWithinChunk(ID + ivec3(-1, 0, 0)),
-//         getVoxelMatWithinChunk(ID + ivec3(1, 0, 0)),
-        
-//         getVoxelMatWithinChunk(ID + ivec3(0, 1, 0)),
-//         getVoxelMatWithinChunk(ID + ivec3(0, -1, 0)),
-//     };
-
-//     int mask = 0;
-//     for(int i = 0; i < 6; i++){
-//         //if voxel neighbouring that face is not empty (material is 0) then mask it
-//         mask |= (int(faces[i] != 0) << i);
-//     }
-
-//     return mask;
-// }
-
 void main(){
-    //ID is index within chunk
-    //fancy math to make sure you can do one voxel per thread
-    ivec3 ID = ivec3(
-        gl_LocalInvocationID.x,
-        gl_WorkGroupID.y / (CHUNK_DEPTH / LOCAL_SIZE_Z),
-        gl_LocalInvocationID.z + (gl_WorkGroupID.y % (CHUNK_DEPTH / LOCAL_SIZE_Z)) * (gl_WorkGroupSize.z / 2)
-    );4
+    uint xID  = gl_LocalInvocationID.x * (CHUNK_WIDTH / LOCAL_SIZE_X);
+    uint xLimit = xID + (CHUNK_WIDTH / LOCAL_SIZE_X);
+    for(xID; xID < xLimit; xID++){
+        uvec3 ID = uvec3(
+            xID,
+            gl_WorkGroupID.y,
+            gl_LocalInvocationID.z
+        );
 
-    int currMatID = voxels.array[getVoxelIndex(ID)];
-    // front back left right top bottom
-    int faces[6] = {
-        getVoxelMatWithinChunk(ID + ivec3(0, 0, -1)),
-        getVoxelMatWithinChunk(ID + ivec3(0, 0, 1)),
-
-        getVoxelMatWithinChunk(ID + ivec3(-1, 0, 0)),
-        getVoxelMatWithinChunk(ID + ivec3(1, 0, 0)),
+        uint trueMatID = voxels.array[getVoxelIndex(ID)];
         
-        getVoxelMatWithinChunk(ID + ivec3(0, 1, 0)),
-        getVoxelMatWithinChunk(ID + ivec3(0, -1, 0)),
-    };
+        ivec3 iID = ivec3(ID);
+        // front back left right top bottom
+        uint faces[6] = {
+            getVoxelMatWithinChunk(iID + ivec3(0, 0, -1)),
+            getVoxelMatWithinChunk(iID + ivec3(0, 0, 1)),
 
-    int mask = 0;
-    for(int i = 0; i < 6; i++){
-        //if voxel neighbouring that face is not empty (material is 0) then mask it
-        mask |= (int(faces[i] != 0) << i);
-    }
-    
-    // ivec3 position =  (ivec3(gl_WorkGroupID) - ivec3(gl_NumWorkGroups/2)) * ivec3(CHUNK_WIDTH, 0, CHUNK_DEPTH);
-    ivec3 position =  (ivec3(gl_WorkGroupID)) * ivec3(CHUNK_WIDTH, 0, CHUNK_DEPTH);
-    // position += (ivec3(ID) - ivec3(CHUNK_WIDTH, CHUNK_HEIGHT, CHUNK_DEPTH)/2);
-    position = (ivec3(ID));
-    // ivec3 position =  (ivec3(gl_WorkGroupID) - ivec3(gl_NumWorkGroups/2)) * ivec3(1, 0, 1);
+            getVoxelMatWithinChunk(iID + ivec3(-1, 0, 0)),
+            getVoxelMatWithinChunk(iID + ivec3(1, 0, 0)),
+            
+            getVoxelMatWithinChunk(iID + ivec3(0, 1, 0)),
+            getVoxelMatWithinChunk(iID + ivec3(0, -1, 0)),
+        };
 
-    int encodedMaterialID = mask << (32 - 6);
-    encodedMaterialID |= currMatID & ~(0x3f << (32 - 6));
-    
-    bool isVisible = ((currMatID != 0) && (mask != 0x3f));
-    // bool isVisible = ((currMatID != 0));
-    uint index = atomicAdd(voxelDrawCount.instanceCount, uint(isVisible));
-    if(isVisible){
-        drawPositionMat.array[index] = ivec4(position, encodedMaterialID);
+        int mask = 0;
+        for(int i = 0; i < 6; i++){
+            //if voxel neighbouring that face is not empty (material is 0) then mask it
+            mask |= (int(faces[i] != 0) << i);
+        }
+        
+        uvec3 position =  gl_WorkGroupID * uvec3(CHUNK_WIDTH, 0, CHUNK_DEPTH) + ID;
+
+        uint currMatID = gl_WorkGroupID.z + gl_WorkGroupID.x * gl_NumWorkGroups.z;
+
+        uint encodedMaterialID = bitfieldInsert(
+            bitfieldInsert(uint(0), mask, (32 - 6), 6),
+            currMatID,
+            0,
+            (32 - 6)
+        );
+
+        bool isVisible = ((trueMatID != 0) && (mask != 0x3f));
+        // bool isVisible = ((currMatID != 0));
+        // bool isVisible = true;
+
+        uint index = atomicAdd(voxelDrawCount.instanceCount, uint(isVisible));
+        if(isVisible){
+            drawPositionMat.array[index] = uvec4(position, encodedMaterialID);
+        }
     }
 }
+
+/*
+Next steps:
+    1) cull back faces (enable and check)
+    2) cull out of frustum cone in this voxel.comp shader only
+        by getting camera pos and fov, calculate angle between voxel position and camera pos
+    3) create new compute pipeline to modify the voxel world before this one runs
+        you can make it so that it modifies the next frame's world while this one is rendering
+    4) motion blur
+
+*/

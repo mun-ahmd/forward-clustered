@@ -30,6 +30,25 @@ struct globalDescriptor {
 	glm::mat4 proj;
 	glm::mat4 view;
 	glm::mat4 projView;
+	glm::vec4 cameraPos_time;
+	glm::vec4 fovY_aspectRatio_zNear_zFar;
+
+	void updateValues(
+		glm::mat4 proj,
+		float fovY,
+		float aspectRatio,
+		float zNear,
+		float zFar,
+		glm::mat4 view,
+		glm::vec3 cameraPos,
+		float time_seconds
+	) {
+		this->proj = proj;
+		this->view = view;
+		this->projView = proj * view;
+		this->fovY_aspectRatio_zNear_zFar = { fovY, aspectRatio, zNear, zFar };
+		this->cameraPos_time = glm::vec4(cameraPos, time_seconds);
+	}
 
 	void setView(glm::mat4& view) {
 		this->view = view;
@@ -165,8 +184,8 @@ public:
 };
 
 struct FrameData {
-	void* matricesMappedPointer;
-	RC<Buffer> matricesBuffer;
+	void* globalDescBufferMappedPointer;
+	RC<Buffer> globalDescBuffer;
 	VkDescriptorSet globalDS;
 
 	PointLightsBuffer pointLights;
@@ -356,8 +375,8 @@ private:
 	}
 
 	void frameInitializer(FrameData* frame) {
-		frame->matricesBuffer = Buffer::create(core, sizeof(globalDescriptor), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, (VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT), 0);
-		frame->matricesMappedPointer = frame->matricesBuffer->allocation->GetMappedData();
+		frame->globalDescBuffer = Buffer::create(core, sizeof(globalDescriptor), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, (VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT), 0);
+		frame->globalDescBufferMappedPointer = frame->globalDescBuffer->allocation->GetMappedData();
 
 		{
 			VkDescriptorSetLayoutBinding binding{};
@@ -375,7 +394,7 @@ private:
 			write.dstBinding = binding.binding;
 			write.pNext = nullptr;
 			VkDescriptorBufferInfo info{};
-			info.buffer = frame->matricesBuffer->buffer;
+			info.buffer = frame->globalDescBuffer->buffer;
 			info.offset = 0;
 			info.range = sizeof(globalDescriptor);
 			write.pBufferInfo = &info;
@@ -394,10 +413,21 @@ private:
 				*t.first = (t.second.y < 0);
 			}
 		}
+
+		int counts[2] = { 0, 0 };
+		for (auto& chunk : chunks) {
+			for (auto& t : chunk) {
+				// 0 for sky 1 for ground
+				counts[(*t.first)]++;
+			}
+		}
+		std::cout << "\ncounts: " << counts[0] << " , " << counts[1] << std::endl;
+
+
 		frame->vcb.setChunks(chunks, 16 * 16);
 		frame->vcbDescriptorSet = frame->vcb.createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
-		frame->vdb.init(core, 100000, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+		frame->vdb.init(core, 1000000, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
 		frame->vdbDescriptorSet = frame->vdb.createDescriptor(core, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
 		glm::uvec3 clusterSize = glm::uvec3(32, 32, 4);
@@ -548,11 +578,16 @@ private:
 
 	void mainLoop() {
 		//make a model view matrix for rendering the object
-		glm::vec3 camPos = { 0.f,0.f,-1.f };
+		glm::vec3 camPos = { 0.f,0.f, 0.f };
 		//camera position
 		glm::mat4 view = camera.getView();
 		//camera projection
-		glm::mat4 projection = glm::perspective(glm::radians(70.f), static_cast<float>(swapChain.swapChainExtent.width) / swapChain.swapChainExtent.height, nearPlane, farPlane);
+		float fovY = glm::radians(70.f),
+			aspectRatio = static_cast<float>(swapChain.swapChainExtent.width) / swapChain.swapChainExtent.height,
+			zNear = nearPlane,
+			zFar = farPlane;
+
+		glm::mat4 projection = glm::perspective(fovY, aspectRatio, zNear, zFar);
 
 		globalDescriptor gDescValue{};
 		gDescValue.proj = projection;
@@ -591,7 +626,7 @@ private:
 
 		auto frameActions =
 			[&](Frame& activeFrame) {
-			memcpy(activeFrame.data.matricesMappedPointer, &gDescValue, sizeof(globalDescriptor));
+			memcpy(activeFrame.data.globalDescBufferMappedPointer, &gDescValue, sizeof(globalDescriptor));
 			VkCommandBufferBeginInfo beginInfo{};
 			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 			beginInfo.flags = 0; // Optional
@@ -726,7 +761,17 @@ private:
 				}
 
 				view = camera.getView();
-				gDescValue.setView(view);
+
+				gDescValue.updateValues(
+					projection,
+					fovY,
+					aspectRatio,
+					zNear,
+					zFar,
+					view,
+					camera.get_pos(),
+					(float)glfwGetTime()
+				);
 
 				this->imgui.newFrame();
 				this->imgui.test();

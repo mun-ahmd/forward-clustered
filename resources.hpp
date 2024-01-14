@@ -79,7 +79,7 @@ inline const std::vector<float> vertices = {
 	  0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
 	  0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
 	 -0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f,
-	 -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f
+	 -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f,
 
 	 //bottom
 	-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
@@ -87,12 +87,19 @@ inline const std::vector<float> vertices = {
 	 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
 	 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
 	-0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  0.0f,
-	-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
+	-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f
 };
 
 inline std::vector<Vertex3> getCubeVertices() {
-	auto start = reinterpret_cast<const Vertex3*>(vertices.data());
-	return std::vector<Vertex3>(start, start + vertices.size());
+	std::vector<Vertex3> verticesData;
+	for (int i = 0; i < vertices.size(); i += 8) {
+		Vertex3 vert{};
+		vert.pos = glm::vec3(vertices[i], vertices[i + 1], vertices[i + 2]);
+		vert.norm = glm::vec3(vertices[i + 3], vertices[i + 4], vertices[i + 5]);
+		vert.uv = glm::vec2(vertices[i + 6], vertices[i + 7]);
+		verticesData.push_back(vert);
+	}
+	return verticesData;
 }
 
 struct BufferCopyInfo {

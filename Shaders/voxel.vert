@@ -6,16 +6,18 @@ layout(location = 2) in vec2 inTexCoord;
 
 layout(location = 0) out vec3 fragPos;
 layout(location = 1) out vec3 fragNorm;
-layout(location = 2) out flat int materialID;
+layout(location = 2) out flat uint materialID;
 
 layout(set = 0, binding = 0) uniform  Matrices{
     mat4 proj;
     mat4 view;
     mat4 projView;
+    vec4 cameraPos_time;
+	vec4 fovY_aspectRatio_zNear_zFar;
 } matrices;
 
 layout(std140, set = 3, binding = 1) readonly buffer Voxel{
-    ivec4 array[];
+    uvec4 array[];
 } position_mats;
 
 
@@ -34,23 +36,25 @@ layout(std140, set = 3, binding = 1) readonly buffer Voxel{
 
 void main(){
     fragNorm = inNormal;
-    ivec4 position_mat = position_mats.array[gl_InstanceIndex];
+    uvec4 position_mat = position_mats.array[gl_InstanceIndex];
     
-    fragPos = vec4( (inPosition + vec3(position_mat.xyz) + 0.5)/10 , 1.0).xyz;
+    fragPos = (inPosition + vec3(position_mat.xyz) + 0.5).xyz;
     
     // encodedMaterialID (32 bits) is in a format where:
     // the faceMask is the Most Significant 6 bits and
     // actual materialID is the remaining 26 bits
-    int encodedMaterialID = position_mat.w;
-    materialID = encodedMaterialID & ~(0x3f << (32 - 6));
-    // materialID = (encodedMaterialID << 6) >> 6;
+    uint encodedMaterialID = position_mat.w;
+    materialID = bitfieldExtract(encodedMaterialID, 0, (32 - 6));
+    uint faceMask =  bitfieldExtract(encodedMaterialID, (32 - 6), 6);
 
-    int faceMask =  encodedMaterialID >> (32 - 6);
-    int faceIndex = gl_VertexIndex % 6;
-    float isFaceMasked = float(bool(encodedMaterialID & (1 << faceIndex)));
+    uint faceIndex = gl_VertexIndex / 6;
+    bool isFaceMasked = (bool(faceMask & (1 << faceIndex)));
     // isFaceMasked = 0.0;
+    // materialID = uint(faceIndex);
     
     gl_Position = matrices.projView * vec4(fragPos, 1.0);
     //if the face mask is set to 1, the position is set to 1,1,1,0 which will be discarded during clipping
-    gl_Position = gl_Position * (1.0 - isFaceMasked) + vec4(1, 1, 1, 0) * isFaceMasked;
+    if(isFaceMasked){
+        gl_Position = vec4(0);
+    }
 }

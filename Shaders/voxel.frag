@@ -2,7 +2,7 @@
 
 layout(location = 0) in vec3 fragPos;
 layout(location = 1) in vec3 fragNorm;
-layout(location = 2) in flat int materialID;
+layout(location = 2) in flat uint materialID;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -33,5 +33,11 @@ void main(){
 	// 		0.1 + cLight.color * max(0.0, dot(normal, cLight.position_radius.xyz - fragPos))
 	// 	) * 0.1;
 	// }
-	fragColor = vec4(1.0);
+	float matIDDeg = 3.14 * float(materialID);
+	fragColor = vec4(
+		// sin(matIDDeg) * 0.5 + 0.5,
+		// cos(matIDDeg) * 0.5 + 0.5,
+		// float(materialID) / 255.0,
+		vec3(float(materialID) / 15)*0.75 + 0.25,
+		1.0);
 }
