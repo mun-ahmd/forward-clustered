@@ -115,6 +115,9 @@ public:
     {
         return this->cam.getViewMatrix();
     }
+    glm::vec3 get_dir() {
+        return this->cam.front;
+    }
     glm::vec3 get_pos() {
         return this->cam.position;
     }

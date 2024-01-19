@@ -11,18 +11,27 @@
 
 layout (local_size_x = LOCAL_SIZE_X, local_size_y = LOCAL_SIZE_Y, local_size_z = LOCAL_SIZE_Z) in;
 
-layout(std430, set = 0, binding = 0) readonly buffer VoxelData{
+layout(set = 0, binding = 0) uniform GlobalData{
+    mat4 proj;
+    mat4 view;
+    mat4 projView;
+	vec4 fovY_aspectRatio_zNear_zFar;
+    vec4 cameraPos_time;
+    vec4 cameraDir;
+} viewInfo;
+
+layout(std430, set = 1, binding = 0) readonly buffer VoxelData{
 	uint array[];    //voxel material id
 } voxels;
 
-layout(std140, set = 1, binding = 0) buffer VoxelDrawCount{
+layout(std140, set = 2, binding = 0) buffer VoxelDrawCount{
     uint vertexCount;
 	uint instanceCount;
 	uint firstVertex;
 	uint firstInstance;
 } voxelDrawCount;
 
-layout(std140, set = 1, binding = 1) writeonly buffer VoxelDrawBuffer{
+layout(std140, set = 2, binding = 1) writeonly buffer VoxelDrawBuffer{
     uvec4 array[];
 } drawPositionMat;
 
@@ -38,7 +47,9 @@ uint getVoxelMatWithinChunk(ivec3 voxelID){
         any(greaterThanEqual(voxelID, ivec3(CHUNK_WIDTH, CHUNK_HEIGHT, CHUNK_DEPTH)))
     ));
     //if out of chunk bounds return zero, else return material
-    return isWithinChunkBounds * voxels.array[isWithinChunkBounds * getVoxelIndex(voxelID)];
+    // return isWithinChunkBounds * voxels.array[isWithinChunkBounds * getVoxelIndex(voxelID)];
+
+    return isWithinChunkBounds * uint(voxelID.y > int(sin(viewInfo.cameraPos_time.w) * 64 * sin(voxelID.x + gl_WorkGroupID.x) * cos(voxelID.z + gl_WorkGroupID.z * CHUNK_DEPTH)));
 }
 
 void main(){
@@ -51,7 +62,7 @@ void main(){
             gl_LocalInvocationID.z
         );
 
-        uint trueMatID = voxels.array[getVoxelIndex(ID)];
+        uint trueMatID = getVoxelMatWithinChunk(ivec3(ID));
         
         ivec3 iID = ivec3(ID);
         // front back left right top bottom
@@ -83,7 +94,26 @@ void main(){
             (32 - 6)
         );
 
-        bool isVisible = ((trueMatID != 0) && (mask != 0x3f));
+
+        vec3 cameraPos = viewInfo.cameraPos_time.xyz;
+        vec3 voxelPos = position;
+        float angle = acos(dot(normalize(cameraPos - voxelPos), viewInfo.cameraDir.xyz));
+        float dist = distance(voxelPos, cameraPos);
+        bool isCameraVisible = (
+            angle < viewInfo.fovY_aspectRatio_zNear_zFar.x
+            && 
+            (
+                dist > viewInfo.fovY_aspectRatio_zNear_zFar.z
+                &&
+                dist < viewInfo.fovY_aspectRatio_zNear_zFar.w
+            )
+        );        
+
+        // * viewInfo.fovY_aspectRatio_zNear_zFar.y);
+        // bool isCameraVisible = (angle < radians(100.0));
+        // && (dist > viewInfo.fovY_aspectRatio_zNear_zFar.z && dist < viewInfo.fovY_aspectRatio_zNear_zFar.w);
+
+        bool isVisible = ((trueMatID != 0) && (mask != 0x3f)) && (isCameraVisible);
         // bool isVisible = ((currMatID != 0));
         // bool isVisible = true;
 
@@ -103,4 +133,9 @@ Next steps:
         you can make it so that it modifies the next frame's world while this one is rendering
     4) motion blur
 
-*/
+
+    1) use square as primitive and do backface culling in this shader
+    2) have seperate draw queues for front, back, left, right, top, bottom and draw the one in dir of cam first
+    3)
+
+    */

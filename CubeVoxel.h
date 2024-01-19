@@ -245,7 +245,7 @@ private:
 		rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
 		rasterizer.depthClampEnable = VK_FALSE;
 		rasterizer.rasterizerDiscardEnable = VK_FALSE;
-		rasterizer.polygonMode = VK_POLYGON_MODE_LINE;
+		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 		rasterizer.lineWidth = 1.0f;
 		//todo change to cull 3 out of 6 faces of a cube
 		rasterizer.cullMode = VK_CULL_MODE_NONE;
@@ -343,8 +343,9 @@ private:
 
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = 2;
-		VkDescriptorSetLayout layouts[2] = {
+		pipelineLayoutInfo.setLayoutCount = 3;
+		VkDescriptorSetLayout layouts[3] = {
+			descriptorLayouts[0],
 			chunkBufferDescriptorLayout,
 			voxelDrawBufferLayout
 		};
@@ -438,21 +439,22 @@ public:
 
 	void recordComputeCommands(
 		VkCommandBuffer& commandBuffer,
+		VkDescriptorSet globalDescriptorSet,
 		VoxelChunkBuffer& vcb, VkDescriptorSet vcbDescriptorSet,
 		VoxelDrawBuffer& vdb, VkDescriptorSet vdbDescriptorSet
 	){
 		vdb.initializeCountToZero();
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute.pipeline);
-		VkDescriptorSet descriptors[2] = { vcbDescriptorSet, vdbDescriptorSet };
+		VkDescriptorSet descriptors[3] = {globalDescriptorSet, vcbDescriptorSet, vdbDescriptorSet };
 		vkCmdBindDescriptorSets(
 			commandBuffer,
 			VK_PIPELINE_BIND_POINT_COMPUTE,
-			compute.layout, 0, 2, descriptors,
+			compute.layout, 0, 3, descriptors,
 			0, 0
 		);
 
-		vkCmdDispatch(commandBuffer, 4, VoxelChunk::chunkSize.y, 4);
+		vkCmdDispatch(commandBuffer, 16, VoxelChunk::chunkSize.y, 16);
 	}
 
 };

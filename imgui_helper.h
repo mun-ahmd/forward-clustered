@@ -18,6 +18,8 @@ private:
 public:
 	bool my_tool_active;
 	float my_color[4] = { 0.2, 0.3, 0.85, 1.0 };
+	std::vector<std::string> textData;
+
 	void test() {
 		// Create a window called "My First Tool", with a menu bar.
 		ImGui::Begin("My First Tool", &my_tool_active, ImGuiWindowFlags_MenuBar);
@@ -43,8 +45,10 @@ public:
 		// Display contents in a scrolling region
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Important Stuff");
 		ImGui::BeginChild("Scrolling");
-		for (int n = 0; n < 50; n++)
-			ImGui::Text("%04d: Some text", n);
+		for (auto& text : textData) {
+			ImGui::Text(text.c_str());
+		}
+		ImGui::Text("Some text");
 		ImGui::EndChild();
 		ImGui::End();
 	}

@@ -30,8 +30,9 @@ struct globalDescriptor {
 	glm::mat4 proj;
 	glm::mat4 view;
 	glm::mat4 projView;
-	glm::vec4 cameraPos_time;
 	glm::vec4 fovY_aspectRatio_zNear_zFar;
+	glm::vec4 cameraPos_time;
+	glm::vec4 cameraDir;
 
 	void updateValues(
 		glm::mat4 proj,
@@ -41,6 +42,7 @@ struct globalDescriptor {
 		float zFar,
 		glm::mat4 view,
 		glm::vec3 cameraPos,
+		glm::vec3 cameraDir,
 		float time_seconds
 	) {
 		this->proj = proj;
@@ -48,6 +50,7 @@ struct globalDescriptor {
 		this->projView = proj * view;
 		this->fovY_aspectRatio_zNear_zFar = { fovY, aspectRatio, zNear, zFar };
 		this->cameraPos_time = glm::vec4(cameraPos, time_seconds);
+		this->cameraDir = glm::vec4(glm::normalize(cameraDir), 1.0);
 	}
 
 	void setView(glm::mat4& view) {
@@ -427,7 +430,7 @@ private:
 		frame->vcb.setChunks(chunks, 16 * 16);
 		frame->vcbDescriptorSet = frame->vcb.createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
-		frame->vdb.init(core, 1000000, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+		frame->vdb.init(core, 1000000, (VkBufferUsageFlagBits)(VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT));
 		frame->vdbDescriptorSet = frame->vdb.createDescriptor(core, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
 		glm::uvec3 clusterSize = glm::uvec3(32, 32, 4);
@@ -624,6 +627,18 @@ private:
 		//compute clusters buffer once before first frame
 		//computeClusters(frames.front());
 
+		auto cpuReadBuf = Buffer::create(
+			core,
+			sizeof(VoxelDrawCount) * 2,
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			(VmaAllocationCreateFlagBits)(
+				VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | 
+				VMA_ALLOCATION_CREATE_MAPPED_BIT
+			),
+			0
+		);
+		imgui.textData.push_back("empty");
+
 		auto frameActions =
 			[&](Frame& activeFrame) {
 			memcpy(activeFrame.data.globalDescBufferMappedPointer, &gDescValue, sizeof(globalDescriptor));
@@ -723,7 +738,6 @@ private:
 			}
 			uint32_t dynamicOffset = 0;
 
-
 			vkCmdBindDescriptorSets(activeFrame.commandBuffer,
 				VK_PIPELINE_BIND_POINT_GRAPHICS, voxelRenderer.getDrawPipelineLayout(),
 				0, 2, globalAndLightsSet,
@@ -742,6 +756,18 @@ private:
 				scissor
 			);
 
+			BufferCopyInfo cpuBufferCopyInfo{};
+			cpuBufferCopyInfo.dst = cpuReadBuf->buffer;
+			cpuBufferCopyInfo.src = activeFrame.data.vdb.resourceBuf->buffer;
+			VkBufferCopy vkcpinf{};
+			vkcpinf.dstOffset = 0;
+			vkcpinf.size = sizeof(VoxelDrawCount);
+			vkcpinf.srcOffset = activeFrame.data.vdb.getBaseInfoOffset();
+			cpuBufferCopyInfo.inf = vkcpinf;
+			copyBuffer(core, commandPool, { cpuBufferCopyInfo });
+			VoxelDrawCount* voxelCountInfo = (VoxelDrawCount*)cpuReadBuf->allocattedInfo.pMappedData;
+			imgui.textData[0] = ("total instances: " + std::to_string(voxelCountInfo->instanceCount));
+
 			imgui.drawWithinRenderPass(activeFrame.commandBuffer);
 
 			vkCmdEndRenderPass(activeFrame.commandBuffer);
@@ -749,11 +775,13 @@ private:
 			if (vkEndCommandBuffer(activeFrame.commandBuffer) != VK_SUCCESS) {
 				throw std::runtime_error("failed to record command buffer!");
 			}
-			};
+		};
 
+		imgui.textData.push_back("FPS: ");
 		while (!glfwWindowShouldClose(core->window)) {
 			try {
 				double deltaTime = glfwGetTime() - startTime;
+				imgui.textData[1] = "FPS: " + std::to_string((int)(1.0 / deltaTime));
 				startTime = glfwGetTime();
 				if (!shouldShowMouse) {
 					camera.moveAround(deltaTime);
@@ -770,6 +798,7 @@ private:
 					zFar,
 					view,
 					camera.get_pos(),
+					camera.get_dir(),
 					(float)glfwGetTime()
 				);
 
@@ -832,6 +861,7 @@ private:
 		//TODO put voxel commands here to test
 		this->voxelRenderer.recordComputeCommands(
 			anyFrame.data.computeCommandBuffer,
+			frames[current_frame].data.globalDS,
 			anyFrame.data.vcb,
 			anyFrame.data.vcbDescriptorSet,
 			anyFrame.data.vdb,
