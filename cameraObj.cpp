@@ -97,7 +97,8 @@ void Camera::processMouseScroll(float yoffset)
 
 
 void Camera::changeCameraFront(glm::vec3 newFront) {
-    Camera::front = newFront;
+    this->up = this->worldUp;
+    this->front = newFront;
     calcPitchYawRoll();
     updateCameraVectors();
 }

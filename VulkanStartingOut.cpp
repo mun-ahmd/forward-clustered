@@ -13,7 +13,9 @@
 #include "cameraObj.h"
 #include "resources.hpp"
 #include "imgui_helper.h"
-#include "CubeVoxel.h"
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 
 struct AABB {
@@ -199,11 +201,6 @@ struct FrameData {
 	VkFence clusterCompFence;
 
 	VkCommandBuffer computeCommandBuffer;
-
-	VoxelChunkBuffer vcb;
-	VkDescriptorSet vcbDescriptorSet;
-	VoxelDrawBuffer vdb;
-	VkDescriptorSet vdbDescriptorSet;
 };
 
 typedef FrameBase<FrameData> Frame;
@@ -280,73 +277,67 @@ private:
 	float nearPlane = 0.1f;
 	float farPlane = 200.f;
 
-	VoxelRenderer voxelRenderer;
+	struct GLTFModelSelector {
+		constexpr inline static const char* baseDirectory = "3DModels";
+		std::vector<std::string> discoveredGLTFModelPaths;
+		std::string loadedModelPath = "3DModels/main_sponza/Main.1_Sponza\\NewSponza_Main_glTF_002.gltf";
+		GLTFModelSelector(){
+			//discover possible model paths
+			std::vector<std::string> directoryQueue = { baseDirectory };
+			int directoryQueueIndex = 0;
+			try {
+				while (directoryQueueIndex < directoryQueue.size()) {
+					for (const auto& entry : fs::directory_iterator(directoryQueue[directoryQueueIndex])) {
+						if (fs::is_regular_file(entry) && entry.path().extension() == ".gltf") {
+							std::cout << "Found .gltf file: " << entry.path() << std::endl;
+							discoveredGLTFModelPaths.push_back(entry.path().generic_string());
+						}
+						else if (fs::is_directory(entry)) {
+							directoryQueue.push_back(entry.path().generic_string());
+						}
+					}
+					directoryQueueIndex++;
+				}
+			}
+			catch (const std::exception& e) {
+				std::cerr << "Error: " << e.what() << std::endl;
+			}
+		}
+
+		void render(std::function<void()> ifFileSelectedCallback) {
+			ImGui::Begin("Model Selection Menu");
+
+			// Display menu items
+			for (int i = 0; i < discoveredGLTFModelPaths.size(); i++) {
+				ImGui::PushID(i); // Ensure each menu item has a unique ID
+				if (ImGui::Button(discoveredGLTFModelPaths[i].c_str())) {
+					printf("Item %d clicked!\n", i);
+					this->loadedModelPath = discoveredGLTFModelPaths[i];
+					ifFileSelectedCallback();
+				}
+				ImGui::PopID();
+			}
+
+			ImGui::End();
+		}
+
+	} gltfModelSelector;
+
 
 	void initMeshesMaterials() {
 		camera = CamHandler(core->window);
-		constexpr int chunkCount = 1;
-
-		/*	VoxelChunk chunks[chunkCount];
-			for (size_t i = 0; i < chunkCount; i++)
-			{
-				auto& chunk = chunks[i];
-
-				int j = i + 1;
-				for (auto& [voxel, coord] : chunks[i]) {
-					*voxel = j * (int)glm::all(glm::equal(coord % (j+1), glm::ivec3(0)));
-				}
-			}*/
-
-		std::vector<unsigned int> cubeIndices(36);
-		std::iota(cubeIndices.begin(), cubeIndices.end(), 0);
-		auto cubeMeshData = MeshData<Vertex3>(getCubeVertices(), cubeIndices);
-		auto cubeMesh = Mesh(
-			core,
-			commandPool,
-			cubeMeshData
-		);
 
 		meshes.clear();
 		transforms.clear();
 		meshMatIndices.clear();
 		materials.clear();
-		//for (int i = 0; i < chunkCount; i++) {
-		//	glm::vec3 baseTranslate = glm::vec3(
-		//		(VoxelChunk::chunkSize.x * (float)chunkCount), 0.0f, 0.0f
-		//	);
 
-		//	for (auto&[voxel, coord] : chunks[i]) {
-		//		if (*voxel != 0) {
-		//			
-		//			meshes.push_back(cubeMesh);
-
-		//			transforms.push_back(
-		//				glm::translate(
-		//					glm::translate(
-		//						glm::scale(
-		//							glm::mat4(1.f),
-		//							glm::vec3(0.5)
-		//						),
-		//						baseTranslate
-		//					),
-		//					glm::vec3(coord)
-		//				)
-		//			);
-
-		//			meshMatIndices.push_back(*voxel - 1);
-		//		}
-		//	}
-		//	materials.push_back(Material::create(core, commandPool, randomMaterial()));
-		//}
-
-
-		return;
-
-		auto loadedModel = loadGLTF("3DModels/cubeScene/cube.gltf").value();
+		auto loadedModel = loadGLTF(gltfModelSelector.loadedModelPath.c_str()).value();
 		meshes.reserve(loadedModel.meshData.meshes.size());
 		transforms = loadedModel.meshData.transforms;
 		materials.reserve(loadedModel.meshData.meshes.size());
 
+		Material::clear();
 		for (auto& matIndex : loadedModel.meshData.matIndex) {
 			matIndex = materials.size();
 			materials.push_back(Material::create(core, commandPool, randomMaterial()));
@@ -404,31 +395,6 @@ private:
 
 		frame->pointLights.init(core);
 		frame->pointLightsDS = frame->pointLights.createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-
-		frame->vcb.init(core, 16 * 16 * VoxelChunk::chunkVoxelCount);
-		VoxelChunk chunks[16 * 16];
-		for (auto& chunk : chunks) {
-			for (auto& t : chunk) {
-				// 0 for sky 1 for ground
-				*t.first = (t.second.y < 0);
-			}
-		}
-
-		int counts[2] = { 0, 0 };
-		for (auto& chunk : chunks) {
-			for (auto& t : chunk) {
-				// 0 for sky 1 for ground
-				counts[(*t.first)]++;
-			}
-		}
-		std::cout << "\ncounts: " << counts[0] << " , " << counts[1] << std::endl;
-
-
-		frame->vcb.setChunks(chunks, 16 * 16);
-		frame->vcbDescriptorSet = frame->vcb.createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-
-		frame->vdb.init(core, 1000000, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
-		frame->vdbDescriptorSet = frame->vdb.createDescriptor(core, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 
 		glm::uvec3 clusterSize = glm::uvec3(32, 32, 4);
 		//frame->clustersBuffer.init(core, sizeof(AABB) * clusterSize.x * clusterSize.y * clusterSize.z);
@@ -526,6 +492,7 @@ private:
 
 	void initVulkan() {
 		core = VulkanUtils::utils().getCore();
+
 		commandPool = VulkanUtils::utils().getCommandPool();
 
 		int i = 0;
@@ -536,24 +503,12 @@ private:
 				std::bind(&Application::frameDestructor, this, std::placeholders::_1)
 			);
 
-			core->giveResourceName(
-				(uint64_t)frame.data.vcb.resourceBuf->buffer,
-				VK_OBJECT_TYPE_BUFFER,
-				std::string("voxel chunk buffer " + std::to_string(i)).c_str()
-			);
-
-			core->giveResourceName(
-				(uint64_t)frame.data.vdb.resourceBuf->buffer,
-				VK_OBJECT_TYPE_BUFFER,
-				std::string("voxel draw buffer " + std::to_string(i)).c_str()
-			);
-
 			i++;
 		}
 		auto swapCapabilities = core->querySwapChainSupport();
 		auto swapChainFormat = chooseSwapSurfaceFormat(swapCapabilities.formats);
 		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
-		Material::init(core);
+		Material::init(core, 1000);
 		materialsDescriptorSet = Material::createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT);
 		initLights();
 		createRenderPass(swapChainFormat.format);
@@ -563,16 +518,6 @@ private:
 		swapChain = SwapChain(core, swapChainFormat, swapPresentMode, chooseSwapExtent(swapCapabilities.capabilities), renderPass);
 		initMeshesMaterials();
 		imgui.init(core, this->renderPass, this->frames[0].commandBuffer, 1);
-
-		voxelRenderer.init({
-			core->getLayout(frames.front().data.globalDS),
-			core->getLayout(frames.front().data.pointLightsDS),
-			core->getLayout(materialsDescriptorSet)
-			}, 
-			core->getLayout(frames.front().data.vcbDescriptorSet),
-			core->getLayout(frames.front().data.vdbDescriptorSet),
-			renderPass
-		);
 
 	}
 
@@ -687,7 +632,9 @@ private:
 				vkCmdDrawIndexed(activeFrame.commandBuffer, meshes[i].numIndices, 1, 0, 0, 0);
 			}
 
+
 			//end of depth prepass
+
 			vkCmdNextSubpass(activeFrame.commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
 			vkCmdBindPipeline(activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
@@ -723,25 +670,6 @@ private:
 			}
 			uint32_t dynamicOffset = 0;
 
-
-			vkCmdBindDescriptorSets(activeFrame.commandBuffer,
-				VK_PIPELINE_BIND_POINT_GRAPHICS, voxelRenderer.getDrawPipelineLayout(),
-				0, 2, globalAndLightsSet,
-				0, nullptr
-			);
-			vkCmdBindDescriptorSets(
-				activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-				voxelRenderer.getDrawPipelineLayout(), 2, 1, &materialsDescriptorSet, 1, &dynamicOffset
-			);
-
-			voxelRenderer.recordRenderCommands(
-				activeFrame.commandBuffer,
-				activeFrame.data.vdb,
-				activeFrame.data.vdbDescriptorSet,
-				viewport,
-				scissor
-			);
-
 			imgui.drawWithinRenderPass(activeFrame.commandBuffer);
 
 			vkCmdEndRenderPass(activeFrame.commandBuffer);
@@ -751,8 +679,23 @@ private:
 			}
 			};
 
+		bool hasModelChanged = false;
+
 		while (!glfwWindowShouldClose(core->window)) {
 			try {
+				if (hasModelChanged) {
+					//wait for meshes to go out of use
+					vkDeviceWaitIdle(core->device);
+
+					auto start = std::chrono::high_resolution_clock::now();
+					// Reload the models
+					this->initMeshesMaterials();
+					auto end = std::chrono::high_resolution_clock::now();
+					auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+					std::cout << "Loading new model took: " << duration.count() << " ms" << std::endl;
+					hasModelChanged = false;
+				}
+
 				double deltaTime = glfwGetTime() - startTime;
 				startTime = glfwGetTime();
 				if (!shouldShowMouse) {
@@ -775,6 +718,22 @@ private:
 
 				this->imgui.newFrame();
 				this->imgui.test();
+				gltfModelSelector.render([&hasModelChanged]() { hasModelChanged = true; });
+
+				ImGui::Begin("Camera settings");
+				if (ImGui::SliderFloat("movement speed", &camera.movementSpeed(), 0.1, 10.0)) {}
+				float camF3[3] = { camera.get_pos().x, camera.get_pos().y, camera.get_pos().z };
+				if(ImGui::InputFloat3("position", camF3)) {
+					camera.set_pos(glm::make_vec3(camF3));
+				}
+				float camViewF3[3] = { camera.get_front().x, camera.get_front().y, camera.get_front().z };
+				if (ImGui::InputFloat3("camera direction", camViewF3)) {
+					glm::vec3 newFront = glm::normalize(glm::make_vec3(camViewF3));
+					if (glm::all(glm::equal(newFront, glm::vec3(0.0, 0.0, 0.0))));
+					camera.set_front(newFront);
+				}
+				ImGui::End();
+
 				computeClusters(frames[current_frame]);
 
 				vkWaitForFences(
@@ -816,27 +775,19 @@ private:
 			throw std::runtime_error("failed to begin recording command buffer!");
 		}
 
-		//vkCmdBindPipeline(anyFrame.data.computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clusterComp.pipe);
-		//glm::vec4 zBoundsVec = glm::vec4(nearPlane, farPlane, 0.0, 0.0);
-		//vkCmdPushConstants(anyFrame.data.computeCommandBuffer, clusterComp.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(glm::vec4), &zBoundsVec);
-		//VkDescriptorSet descriptors[3] = { anyFrame.data.globalDS, anyFrame.data.pointLightsDS, anyFrame.data.clusterCompDS };
-		//vkCmdBindDescriptorSets(
-		//	anyFrame.data.computeCommandBuffer,
-		//	VK_PIPELINE_BIND_POINT_COMPUTE,
-		//	clusterComp.layout, 0, 3, descriptors,
-		//	0, 0
-		//);
-
-		//vkCmdDispatch(anyFrame.data.computeCommandBuffer, 32, 32, 4);
-
-		//TODO put voxel commands here to test
-		this->voxelRenderer.recordComputeCommands(
+		vkCmdBindPipeline(anyFrame.data.computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clusterComp.pipe);
+		glm::vec4 zBoundsVec = glm::vec4(nearPlane, farPlane, 0.0, 0.0);
+		vkCmdPushConstants(anyFrame.data.computeCommandBuffer, clusterComp.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(glm::vec4), &zBoundsVec);
+		VkDescriptorSet descriptors[3] = { anyFrame.data.globalDS, anyFrame.data.pointLightsDS, anyFrame.data.clusterCompDS };
+		vkCmdBindDescriptorSets(
 			anyFrame.data.computeCommandBuffer,
-			anyFrame.data.vcb,
-			anyFrame.data.vcbDescriptorSet,
-			anyFrame.data.vdb,
-			anyFrame.data.vdbDescriptorSet
+			VK_PIPELINE_BIND_POINT_COMPUTE,
+			clusterComp.layout, 0, 3, descriptors,
+			0, 0
 		);
+
+		vkCmdDispatch(anyFrame.data.computeCommandBuffer, 32, 32, 4);
+
 
 		if (vkEndCommandBuffer(anyFrame.data.computeCommandBuffer) != VK_SUCCESS) {
 			throw std::runtime_error("failed to record command buffer!");

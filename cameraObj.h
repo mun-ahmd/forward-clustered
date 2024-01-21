@@ -29,7 +29,7 @@ public:
     glm::vec3 worldUp;
 
     // camera options
-    float movementSpeed;
+    float movementSpeed = 1.0;
     float mouseSensitivity;
     float zoom;
 
@@ -109,6 +109,9 @@ public:
         mouseLastY = 0.0;
         cam.movementSpeed /= 2;
     }
+    float& movementSpeed() {
+        return cam.movementSpeed;
+    }
     void moveAround(double deltaTime);
     void lookAround();
     glm::mat4 getView()
@@ -117,5 +120,15 @@ public:
     }
     glm::vec3 get_pos() {
         return this->cam.position;
+    }
+    void set_pos(glm::vec3 pos) {
+        this->cam.position = pos;
+    }
+    glm::vec3 get_front() {
+        return this->cam.front;
+    }
+    void set_front(glm::vec3 front) {
+        //front has to be normalized
+        this->cam.changeCameraFront(front);
     }
 };

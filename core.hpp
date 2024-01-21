@@ -129,6 +129,7 @@ private:
 		}
 
 		vkGetPhysicalDeviceProperties(physicalDevice, &this->gpuProperties);
+		std::cout << "Using GPU: " << this->gpuProperties.deviceName << std::endl; 
 	}
 
 	void createLogicalDevice() {

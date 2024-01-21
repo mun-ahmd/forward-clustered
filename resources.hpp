@@ -120,12 +120,15 @@ public:
 	VkBuffer buffer;
 	VmaAllocation allocation;
 	VmaAllocationInfo allocattedInfo;
+	inline static int activeAllocatedCount = 0;
 
 	static std::shared_ptr<Buffer> create(VulkanCore core,
 		VkDeviceSize size,
 		VkBufferUsageFlags usage, VmaAllocationCreateFlagBits vmaFlags,
 		VkMemoryPropertyFlags requiredMemoryTypeFlags, VkMemoryPropertyFlags preferredMemoryTypeFlags = 0)
 	{
+		Buffer::activeAllocatedCount++;
+
 		VkBufferCreateInfo bufferInfo{};
 		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 		bufferInfo.size = size;
@@ -146,6 +149,7 @@ public:
 			[core](Buffer* buf) {
 				vmaDestroyBuffer(core->allocator, buf->buffer, buf->allocation);
 				delete buf;
+				Buffer::activeAllocatedCount--;
 			}
 		);
 	}
@@ -153,7 +157,6 @@ public:
 
 inline void copyBuffer(VulkanCore core, VkCommandPool commandPool, std::vector<BufferCopyInfo> buffers) {
 	VkCommandBuffer commandBuffer = core->beginSingleTimeCommands(commandPool);
-	vkAllocateCommandBuffers(core->device, &allocInfo, &commandBuffer);
 
 	for (auto& copyInfo : buffers) {
 		vkCmdCopyBuffer(commandBuffer, copyInfo.src, copyInfo.dst, 1, &copyInfo.inf);
@@ -274,6 +277,10 @@ public:
 	inline static uint32_t storedResources;
 	inline static uint32_t paddedElementSize;
 	inline static uint32_t maximumResources;
+
+	static void clear() {
+		storedResources = 0;
+	}
 
 	static void init(VulkanCore core, uint32_t maximumResourcesValue = 100) {
 		maximumResources = maximumResourcesValue;
