@@ -1,21 +1,9 @@
 #pragma once
-#include <numeric>
-#include <iostream>
-#include <vector>
-#include <string>
-#include <array>
-#include <set>
-#include <optional>
-#include <algorithm>
+
 #include <fstream>
-#include <filesystem>
-#include <functional>
 
 #include <shaderc/shaderc.hpp>
 #include "core.hpp"
-
-constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-constexpr int lightCount = 10;
 
 //RC = Reference Counted
 template<typename T>
@@ -95,9 +83,6 @@ public:
 
 		return shaderModule;
 	}
-
-
-
 };
 
 

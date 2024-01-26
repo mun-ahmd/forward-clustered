@@ -4,6 +4,9 @@
 #include "imgui_impl_vulkan.h"
 #include "imgui_impl_glfw.h"
 
+#include <filesystem>
+namespace fs = std::filesystem;
+
 
 class MyImgui {
 private:
@@ -16,39 +19,6 @@ private:
 	VkDescriptorPool imguiPool;
 	VulkanCore core;
 public:
-	bool my_tool_active;
-	float my_color[4] = { 0.2, 0.3, 0.85, 1.0 };
-	void test() {
-		// Create a window called "My First Tool", with a menu bar.
-		ImGui::Begin("My First Tool", &my_tool_active, ImGuiWindowFlags_MenuBar);
-		if (ImGui::BeginMenuBar())
-		{
-			if (ImGui::BeginMenu("File"))
-			{
-				if (ImGui::MenuItem("Open..", "Ctrl+O")) { /* Do stuff */ }
-				if (ImGui::MenuItem("Save", "Ctrl+S")) { /* Do stuff */ }
-				if (ImGui::MenuItem("Close", "Ctrl+W")) { my_tool_active = false; }
-				ImGui::EndMenu();
-			}
-			ImGui::EndMenuBar();
-		}
-
-		// Edit a color (stored as ~4 floats)
-		ImGui::ColorEdit4("Color", my_color);
-
-		// Plot some values
-		const float my_values[] = { 0.2f, 0.1f, 1.0f, 0.5f, 0.9f, 2.2f };
-		ImGui::PlotLines("Frame Times", my_values, IM_ARRAYSIZE(my_values));
-
-		// Display contents in a scrolling region
-		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Important Stuff");
-		ImGui::BeginChild("Scrolling");
-		for (int n = 0; n < 50; n++)
-			ImGui::Text("%04d: Some text", n);
-		ImGui::EndChild();
-		ImGui::End();
-	}
-
 	void init(VulkanCore core, VkRenderPass renderPass, VkCommandBuffer cmd, int subpass = 0){
 		this->core = core;
 		//1: create descriptor pool for IMGUI
@@ -153,3 +123,53 @@ public:
 	}
 
 };
+
+struct GLTFModelSelector {
+	constexpr inline static const char* baseDirectory = "3DModels";
+	std::vector<std::string> discoveredGLTFModelPaths;
+	std::string loadedModelPath = "3DModels/main_sponza/Main.1_Sponza\\NewSponza_Main_glTF_002.gltf";
+	GLTFModelSelector() {
+		//discover possible model paths
+		std::vector<std::string> directoryQueue = { baseDirectory };
+		int directoryQueueIndex = 0;
+		try {
+			while (directoryQueueIndex < directoryQueue.size()) {
+				for (const auto& entry : fs::directory_iterator(directoryQueue[directoryQueueIndex])) {
+					if (
+						fs::is_regular_file(entry) &&
+						(entry.path().extension() == ".gltf" ||
+							entry.path().extension() == ".glb")
+						) {
+						std::cout << "Found .gltf file: " << entry.path() << std::endl;
+						discoveredGLTFModelPaths.push_back(entry.path().generic_string());
+					}
+					else if (fs::is_directory(entry)) {
+						directoryQueue.push_back(entry.path().generic_string());
+					}
+				}
+				directoryQueueIndex++;
+			}
+		}
+		catch (const std::exception& e) {
+			std::cerr << "Error: " << e.what() << std::endl;
+		}
+	}
+
+	void render(std::function<void()> ifFileSelectedCallback) {
+		ImGui::Begin("Model Selection Menu");
+
+		// Display menu items
+		for (int i = 0; i < discoveredGLTFModelPaths.size(); i++) {
+			ImGui::PushID(i); // Ensure each menu item has a unique ID
+			if (ImGui::Button(discoveredGLTFModelPaths[i].c_str())) {
+				printf("Item %d clicked!\n", i);
+				this->loadedModelPath = discoveredGLTFModelPaths[i];
+				ifFileSelectedCallback();
+			}
+			ImGui::PopID();
+		}
+
+		ImGui::End();
+	}
+
+} gltfModelSelector;
