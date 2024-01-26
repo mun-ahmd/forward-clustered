@@ -2,10 +2,25 @@
 #include <any>
 #include <glm/glm.hpp>
 
-//TODO
-//WHY NOT JUST REMOVE THIS AND USE FAST OBJ STRAIGHT
-//AS THIS IS NOT A GAME ENGINE IT DOES NOT MATTER IF IT TAKES TIME TO LOAD
-//REASON: ABOVE WAS A DUMB THING AS THIS IS ALREADY IMPLEMENTED AND IT WOULD TAKE TIME TO IMPLEMENT FOR OBJ
+typedef std::unique_ptr<unsigned char[], void(*)(void*)> ImagePtr;
+
+ImagePtr loadImageFromFile(
+	const char* filename,
+	int* width,
+	int* height,
+	int* actualChannels,
+	int desiredChannels
+);
+
+ImagePtr resizeImage(
+	ImagePtr image,
+	int numChannels,
+	int oldWidth,
+	int oldHeight,
+	int newWidth,
+	int newHeight,
+	bool isSRGB
+);
 
 template<typename T>
 struct MeshData {

@@ -22,7 +22,7 @@ const std::vector<const char*> deviceExtensions = {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
-#define APP_VK_API_VERSION VK_API_VERSION_1_0
+#define APP_VK_API_VERSION VK_API_VERSION_1_2
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -76,6 +76,27 @@ public:
 
 class VulkanCore_T {
 private:
+	bool checkDeviceIndexingFeatureSupport(VkPhysicalDevice device) {
+		VkPhysicalDeviceDescriptorIndexingFeatures indexingFeatures{};
+		indexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
+		indexingFeatures.pNext = NULL;
+		
+		VkPhysicalDeviceFeatures2 deviceFeatures{};
+		deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+		deviceFeatures.pNext = &indexingFeatures;
+		vkGetPhysicalDeviceFeatures2(device, &deviceFeatures);
+
+		if (
+				indexingFeatures.descriptorBindingPartiallyBound &&
+				indexingFeatures.runtimeDescriptorArray &&
+				indexingFeatures.shaderSampledImageArrayNonUniformIndexing
+			)
+		{
+			// all set to use unbound arrays of textures
+			return true;
+		}
+		return false;
+	}
 	bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
 		uint32_t extensionCount;
 		vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
@@ -96,9 +117,10 @@ private:
 		QueueFamilyIndices indices = findQueueFamilies(device);
 
 		bool extensionsSupported = checkDeviceExtensionSupport(device);
+		bool indexingFeatureSupported = checkDeviceIndexingFeatureSupport(device);
 
 		bool swapChainAdequate = false;
-		if (extensionsSupported) {
+		if (extensionsSupported && indexingFeatureSupported) {
 			SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
 			swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
 		}
@@ -150,8 +172,16 @@ private:
 
 		VkPhysicalDeviceFeatures deviceFeatures{};
 
+		VkPhysicalDeviceDescriptorIndexingFeatures indexingFeatures{};
+		indexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
+		indexingFeatures.pNext = nullptr;
+		indexingFeatures.descriptorBindingPartiallyBound = VK_TRUE;
+		indexingFeatures.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+		indexingFeatures.runtimeDescriptorArray = VK_TRUE;
+
 		VkDeviceCreateInfo createInfo{};
 		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+		createInfo.pNext = &indexingFeatures;
 
 		createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 		createInfo.pQueueCreateInfos = queueCreateInfos.data();
@@ -195,11 +225,13 @@ private:
 		info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 		info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
 		info.maxSets = 16;
-		info.poolSizeCount = 2;
+		info.poolSizeCount = 4;
 		VkDescriptorPoolSize sizes[] =
 		{
 			{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 10},
-			{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10}
+			{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10},
+			{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 150},
+			{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 10}
 		};
 		info.pPoolSizes = sizes;
 
@@ -592,12 +624,17 @@ public:
 		VkDebugUtils.SetDebugUtilsObjectNameEXT(device, &debugNameInfo);
 	}
 
-	VkDescriptorSet createDescriptorSet(std::vector<VkDescriptorSetLayoutBinding>&& bindings) {
+	VkDescriptorSet createDescriptorSet(
+		std::vector<VkDescriptorSetLayoutBinding>&& bindings,
+		VkDescriptorSetLayoutCreateFlags flags = 0,
+		const void* pNext = nullptr
+	) {
 		VkDescriptorSetLayoutCreateInfo layoutInfo{};
 		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		layoutInfo.flags;
+		layoutInfo.flags = flags;
 		layoutInfo.bindingCount = bindings.size();
 		layoutInfo.pBindings = bindings.data();
+		layoutInfo.pNext = pNext;
 
 		VkDescriptorSetLayout layout;
 		if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &layout) != VK_SUCCESS) {

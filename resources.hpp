@@ -6,6 +6,7 @@
 #include <string.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include "VulkanStartingOut.hpp"
 
 struct VertexInputDescription {
 	//helper class to describe vertex input
@@ -182,6 +183,7 @@ inline auto prepareStagingBuffer(VulkanCore core, const void* data, size_t dataS
 class Image {
 public:
 	VkImage image;
+	VkImageLayout layout;
 	VkFormat format;
 	VkExtent3D extent;
 	VmaAllocation allocation;
@@ -206,6 +208,8 @@ public:
 		return info;
 	}
 
+	inline static int allocattedCount = 0;
+
 	static std::shared_ptr<Image> create(
 		VulkanCore core,
 		VkImageCreateInfo imageCreateInfo, VmaAllocationCreateFlagBits vmaFlags,
@@ -218,6 +222,7 @@ public:
 		allocationCreateInfo.preferredFlags = preferredMemoryTypeFlags;
 
 		Image img{};
+		img.layout = imageCreateInfo.initialLayout;
 		img.format = imageCreateInfo.format;
 		img.extent = imageCreateInfo.extent;
 		VmaAllocationInfo allocationInfo;
@@ -227,21 +232,14 @@ public:
 		){
 			throw std::runtime_error("Could not create image resource!");
 		}
+
+		allocattedCount++;
 		return std::shared_ptr<Image>(new Image(img),
 			[core](Image* img) {
 				vmaDestroyImage(core->allocator, img->image, img->allocation);
 				delete img;
+				allocattedCount--;
 			});
-	}
-
-	VkImageView getView(VulkanCore core, VkImageViewCreateInfo info)
-	{
-		VkImageView view;
-		if (vkCreateImageView(core->device, &info, nullptr, &view) != VK_SUCCESS) {
-			throw std::runtime_error("Could not create image view!");
-		}
-		//have to destroy views yourself
-		return view;
 	}
 
 	VkImageView getView(VulkanCore core, VkFormat viewFormat, VkImageAspectFlags aspectFlags)
@@ -260,6 +258,147 @@ public:
 		info.subresourceRange.aspectMask = aspectFlags;
 
 		return getView(core, info);
+	}
+
+	VkImageView getView(VulkanCore core, VkImageViewCreateInfo info)
+	{
+		VkImageView view;
+		if (vkCreateImageView(core->device, &info, nullptr, &view) != VK_SUCCESS) {
+			throw std::runtime_error("Could not create image view!");
+		}
+		//have to destroy views yourself
+		return view;
+	}
+
+	void transitionImageLayout(VkImageLayout newLayout) {
+		VulkanCore core = VulkanUtils::utils().getCore();
+		VkCommandBuffer commandBuffer = core->beginSingleTimeCommands(VulkanUtils::utils().getCommandPool());
+
+		VkImageLayout oldLayout = layout;
+
+		VkImageMemoryBarrier barrier{};
+		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		barrier.oldLayout = oldLayout;
+		barrier.newLayout = newLayout;
+		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.image = image;
+		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		barrier.subresourceRange.baseMipLevel = 0;
+		barrier.subresourceRange.levelCount = 1;
+		barrier.subresourceRange.baseArrayLayer = 0;
+		barrier.subresourceRange.layerCount = 1;
+
+		VkPipelineStageFlags sourceStage;
+		VkPipelineStageFlags destinationStage;
+
+		if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+			barrier.srcAccessMask = 0;
+			barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+			sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		}
+		else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+			sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		}
+		else {
+			throw std::invalid_argument("unsupported layout transition!");
+		}
+
+		vkCmdPipelineBarrier(
+			commandBuffer,
+			sourceStage, destinationStage,
+			0,
+			0, nullptr,
+			0, nullptr,
+			1, &barrier
+		);
+
+		core->endSingleTimeCommands(VulkanUtils::utils().getCommandPool(), commandBuffer);
+
+		this->layout = newLayout;
+	}
+
+	void copyFromBuffer(RC<Buffer> buffer, VkBufferImageCopy region) {
+		auto& vku = VulkanUtils::utils();
+		assert((layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL || layout == VK_IMAGE_LAYOUT_GENERAL), "");
+		VkCommandBuffer commandBuffer = vku.getCore()->beginSingleTimeCommands(vku.getCommandPool());
+		vkCmdCopyBufferToImage(commandBuffer, buffer->buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+		vku.getCore()->endSingleTimeCommands(vku.getCommandPool(), commandBuffer);
+	}
+
+	
+};
+
+class Sampler {
+public:
+	VkSampler sampler;
+
+	static VkSamplerCreateInfo makeCreateInfo(
+		std::array<std::optional<VkFilter>, 2> minMagFilter = {},
+		std::array<std::optional<VkSamplerAddressMode>, 3> uvwAddressMode = {},
+		std::array<std::optional<float>, 3> mipLodBiasMinMax = {},
+		std::optional<VkSamplerMipmapMode> mipMapMode = {},
+		std::optional<float> maxAnisotropy = {},
+		std::optional<VkCompareOp> compareOp = {},
+		std::optional<VkBorderColor> borderColor = {},
+		std::optional<VkSamplerCreateFlags> flags = {},
+		VkBool32 unnormCoords = VK_FALSE
+	) {
+		VkSamplerCreateInfo ci{};
+		ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		ci.minFilter = minMagFilter[0].value_or(VK_FILTER_NEAREST);
+		ci.magFilter = minMagFilter[1].value_or(VK_FILTER_NEAREST);
+
+		ci.mipmapMode = mipMapMode.value_or(VK_SAMPLER_MIPMAP_MODE_NEAREST);
+
+		ci.mipLodBias = mipLodBiasMinMax[0].value_or(0.0f);
+		ci.minLod = mipLodBiasMinMax[1].value_or(0.0f);
+		ci.maxLod = mipLodBiasMinMax[2].value_or(0.0f);
+
+		ci.addressModeU = uvwAddressMode[0].value_or(VK_SAMPLER_ADDRESS_MODE_REPEAT);
+		ci.addressModeV = uvwAddressMode[1].value_or(VK_SAMPLER_ADDRESS_MODE_REPEAT);
+		ci.addressModeW = uvwAddressMode[2].value_or(VK_SAMPLER_ADDRESS_MODE_REPEAT);
+
+		ci.anisotropyEnable = maxAnisotropy.has_value();
+		ci.maxAnisotropy = maxAnisotropy.value_or(0.0f);
+		
+		ci.compareEnable = compareOp.has_value();
+		ci.compareOp = compareOp.value_or(VK_COMPARE_OP_ALWAYS);
+
+		ci.unnormalizedCoordinates = unnormCoords;
+
+		ci.borderColor = borderColor.value_or(VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK);
+
+		ci.flags = flags.value_or((VkSamplerCreateFlags)0);
+
+		ci.pNext = nullptr;
+
+		return ci;
+	}
+
+	inline static int allocattedCount = 0;
+	static std::shared_ptr<Sampler> create(
+		VulkanCore core,
+		VkSamplerCreateInfo info
+	){
+		Sampler sampler{};
+		if (vkCreateSampler(core->device, &info, nullptr, &sampler.sampler) != VK_SUCCESS) {
+			throw std::runtime_error("Failed to create Sampler!");
+		}
+
+		allocattedCount++;
+		return std::shared_ptr<Sampler>(new Sampler(sampler),
+			[core](Sampler* sampler) {
+				vkDestroySampler(core->device, sampler->sampler, nullptr);
+				delete sampler;
+				allocattedCount--;
+			});
 	}
 };
 
@@ -535,12 +674,104 @@ public:
 };
 
 struct MaterialInfo {
-	glm::vec4 diffuseColor;
-	glm::vec4 specularGlossiness;
+	glm::vec4 baseColorFactor;
+	glm::vec4 metallicRoughness_waste2;
+	glm::uvec4 baseTexId_metallicRoughessTexId_waste2;
 };
 
 class Material : public DUResource<MaterialInfo> {
+private:
+	static void createMaterialsDescriptorSet() {
+		VkDescriptorSetLayoutBinding binding0{};
+		{
+			binding0.binding = 0;
+			binding0.descriptorCount = 1;
+			binding0.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+			binding0.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		}
+		VkDescriptorSetLayoutBinding binding1{};
+		{
+			binding1.binding = 1;
+			binding1.descriptorCount = 1024;
+			binding1.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			binding1.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		}
+
+		VkDescriptorBindingFlags bindFlags[2] = { 0, VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT };
+		VkDescriptorSetLayoutBindingFlagsCreateInfo extendedInfo{};
+		extendedInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+		extendedInfo.pNext = nullptr;
+		extendedInfo.bindingCount = 2;
+		extendedInfo.pBindingFlags = bindFlags;
+
+		auto descriptor = VulkanUtils::utils().getCore()->createDescriptorSet({ binding0, binding1 }, 0, &extendedInfo);
+
+		VkWriteDescriptorSet write0{};
+		{
+			write0.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			write0.descriptorCount = 1;
+			write0.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+			write0.dstSet = descriptor;
+			write0.dstBinding = 0;
+			VkDescriptorBufferInfo inf{};
+			inf.buffer = Material::resourceBuf->buffer;
+			inf.offset = 0;
+			inf.range = sizeof(Material::resourceInfo);
+			write0.pBufferInfo = &inf;
+		}
+		vkUpdateDescriptorSets(VulkanUtils::utils().getCore()->device, 1, &write0, 0, nullptr);
+		descriptorSet = descriptor;
+	}
 public:
+	inline static std::vector<RC<Image>> materialImages;
+	inline static RC<Sampler> sampler;
+	inline static VkDescriptorSet descriptorSet;
+
+	static unsigned int addMaterialImage(RC<Image> vImage, RC<Sampler> vSampler) {
+		sampler = vSampler;
+		unsigned int index = materialImages.size();
+		materialImages.push_back(vImage);
+		VkWriteDescriptorSet write1{};
+		write1.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write1.descriptorCount = 1;
+		write1.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write1.dstSet = descriptorSet;
+		write1.dstBinding = 1;
+		write1.dstArrayElement = index;
+
+		VkDescriptorImageInfo imageInfo{};
+		imageInfo.imageLayout = vImage->layout;
+		imageInfo.imageView = vImage->getView(
+			VulkanUtils::utils().getCore(),
+			vImage->format,
+			VK_IMAGE_ASPECT_COLOR_BIT
+		);
+		imageInfo.sampler = sampler->sampler;
+		write1.pImageInfo = &imageInfo;
+		vkUpdateDescriptorSets(VulkanUtils::utils().getCore()->device, 1, &write1, 0, nullptr);
+		return index;
+	}
+
+	static void clear() {
+		for (int i = 0; i < materialImages.size(); i++) {
+			//if (materialImages[i].use_count() != 1) {
+			//	std::cout << 
+			//		"Warning: cleared materials but image " << i << 
+			//		" is not unique"<< std::endl;
+			//}
+		}
+		materialImages.clear();
+	}
+
+	static void init(size_t maxMaterialsCount) {
+		DUResource<MaterialInfo>::init(VulkanUtils::utils().getCore(), maxMaterialsCount);
+		createMaterialsDescriptorSet();
+	}
+
+	static VkDescriptorSet getDescriptorSet() {
+		return descriptorSet;
+	}
+
 	static std::shared_ptr<Material> create(VulkanCore core, VkCommandPool pool, MaterialInfo info) {
 		Material mat{};
 		mat.makeResource(core, pool, info);

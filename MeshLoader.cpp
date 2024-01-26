@@ -16,14 +16,69 @@
 #include "glm/gtc/quaternion.hpp"
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
-#define STB_IMAGE_IMPLEMENTATION
-#define STB_IMAGE_WRITE_IMPLEMENTATION
+
 #include "json.hpp"
-#include "stb_image.h"
-#include "stb_image_write.h"
 using json = nlohmann::json;
 
 #include "MeshLoader.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image.h"
+#include "stb_image_write.h"
+
+ImagePtr loadImageFromFile(
+	const char* filename,
+	int* width,
+	int* height,
+	int* actualChannels,
+	int desiredChannels
+){
+	return std::unique_ptr<unsigned char[], void(*)(void*)>(
+		stbi_load(filename, width, height, actualChannels, desiredChannels),
+		[](void* ptr) {
+			stbi_image_free(ptr);
+		}
+	);
+}
+
+
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include "stb_image_resize2.h"
+
+ImagePtr resizeImage(
+	ImagePtr image,
+	int numChannels,
+	int oldWidth,
+	int oldHeight,
+	int newWidth,
+	int newHeight,
+	bool isSRGB
+) {
+	unsigned char* newImage = (unsigned char*)malloc(sizeof(unsigned char) * newWidth * newHeight * numChannels);
+	constexpr stbir_pixel_layout pixelLayouts[4] = {
+		STBIR_1CHANNEL,
+		STBIR_2CHANNEL,
+		STBIR_RGB,
+		STBIR_RGBA
+	};
+	auto pixelLayout = pixelLayouts[numChannels - 1];
+
+	if (isSRGB) {
+		stbir_resize_uint8_srgb(image.get(), oldWidth, oldHeight, 0, newImage, newWidth, newHeight, 0, pixelLayout);
+	}
+	else {
+		stbir_resize_uint8_linear(image.get(), oldWidth, oldHeight, 0, newImage, newWidth, newHeight, 0, pixelLayout);
+	}
+
+	return ImagePtr(
+		newImage,
+		[](void* ptr) {
+			free(ptr);
+		}
+	);
+}
+
 
 #define CGLTF_IMPLEMENTATION
 #include "cgltf/cgltf.h"
@@ -80,7 +135,6 @@ public:
 	VectorInterface<cgltf_scene> scenes;
 	VectorInterface<cgltf_light> lights;
 };
-
 
 struct AccessorInfo {
 	cgltf_accessor accessor;
@@ -232,87 +286,134 @@ std::vector<std::vector<std::pair<MeshData<Vertex3>, int>>> loadMeshes(ModelInte
 	return meshes;
 }
 
-inline std::string texturePathHelper(std::string& gltfFilePath, json& gltf, json& tex) {
-	json baseColorTexture =
-		(gltf["textures"][tex["index"]
-			.get<int>()]);
-	return std::filesystem::path(gltfFilePath).parent_path().string() +
-		static_cast<char>(std::filesystem::path::preferred_separator) +
-		gltf["images"][baseColorTexture["source"].get<int>()]["uri"]
-		.get<std::string>();
+inline std::string texturePathHelper(std::string& gltfFilePath, std::string texPath) {
+	return (
+			std::filesystem::path(gltfFilePath).parent_path() /
+			std::filesystem::path(texPath)
+		).generic_string();
 }
 
-std::vector<MaterialPBR> loadMaterials(std::string gltfFile) {
+inline bool hasTexture(cgltf_texture_view& view) {
+	return view.texture != NULL;
+}
+
+std::vector<MaterialPBR> loadMaterials(std::string mPath, ModelInterface& model) {
 	std::vector<MaterialPBR> materials;
-	std::ifstream file(gltfFile);
-	json gltf = json::parse(file);
-	json materials_gltf = gltf["materials"];
-	std::string materialname = gltf["materials"][0]["name"].get<std::string>();
-	for (auto mat = materials_gltf.begin(); mat != materials_gltf.end(); mat++) {
-		MaterialPBR curr;
-		if (mat->contains("normalTexture")) {
-			curr.normalMap = texturePathHelper(gltfFile, gltf, (*mat)["normalTexture"]);
-			if ((*mat)["normalTexture"].contains("scale")) {
-				curr.normalScale = (*mat)["normalTexture"]["scale"].get<float>();
-			}
+	materials.reserve(model.materials.size());
+	for (auto& material : model.materials) {
+		MaterialPBR pbrMaterial;
+		
+		if (hasTexture(material.normal_texture)) {
+			pbrMaterial.normalScale = material.normal_texture.scale;
+			pbrMaterial.normalMap = texturePathHelper(mPath, material.normal_texture.texture->image->uri);
 		}
-		if (mat->contains("pbrMetallicRoughness")) {
-			MetallicRoughnessMat MRMat;
-			auto currMetallicRoughness = (*mat)["pbrMetallicRoughness"];
-			if (currMetallicRoughness.contains("baseColorTexture")) {
-				MRMat.baseColorTex = texturePathHelper(gltfFile, gltf, currMetallicRoughness["baseColorTexture"]);
-			}
-			if (currMetallicRoughness.contains("metallicRoughnessTexture")) {
-				MRMat.metallicRoughnessTex = texturePathHelper(gltfFile, gltf, currMetallicRoughness["metallicRoughnessTexture"]);
-			}
-			if (currMetallicRoughness.contains("baseColorFactor")) {
-				auto baseColor =
-					currMetallicRoughness["baseColorFactor"].get<std::vector<float>>();
-				memcpy(&MRMat.baseColorFactor, baseColor.data(),
-					sizeof(MRMat.baseColorFactor));
-			}
-			if (currMetallicRoughness.contains("metallicFactor")) {
-				MRMat.metallic_factor =
-					currMetallicRoughness["metallicFactor"].get<float>();
-			}
-			if (currMetallicRoughness.contains("roughnessFactor")) {
-				MRMat.roughness_factor =
-					currMetallicRoughness["roughnessFactor"].get<float>();
-			}
-			curr.isMetallicRoughness = true;
-			curr.metallicRoughness = MRMat;
+		
+		if (material.has_pbr_metallic_roughness) {
+			cgltf_pbr_metallic_roughness pbr = material.pbr_metallic_roughness;
+			MetallicRoughnessMat mat;
+			if(hasTexture(pbr.metallic_roughness_texture))
+				mat.metallicRoughnessTex = texturePathHelper(mPath, pbr.metallic_roughness_texture.texture->image->uri);
+			if (hasTexture(pbr.base_color_texture))
+				mat.baseColorTex = texturePathHelper(mPath, pbr.base_color_texture.texture->image->uri);
+			mat.metallic_factor = pbr.metallic_factor;
+			mat.roughness_factor = pbr.roughness_factor;
+			mat.baseColorFactor = glm::make_vec4(pbr.base_color_factor);
+
+			pbrMaterial.isMetallicRoughness = true;
+			pbrMaterial.metallicRoughness = mat;
 		}
-		else if (mat->contains("extensions") && (*mat)["extensions"].contains("KHR_materials_pbrSpecularGlossiness")) {
-			DiffuseSpecularMat DFMat;
-			auto diffSpec = (*mat)["extensions"]["KHR_materials_pbrSpecularGlossiness"];
-			if (diffSpec.contains("diffuseTexture")) {
-				DFMat.diffuseTex = texturePathHelper(gltfFile, gltf, diffSpec["diffuseTexture"]);
-			}
-			if (diffSpec.contains("specularGlossinessTexture")) {
-				DFMat.specularGlossTex = texturePathHelper(gltfFile, gltf, diffSpec["specularGlossinessTexture"]);
-			}
-			if (diffSpec.contains("diffuseFactor")) {
-				auto diffFactor =
-					diffSpec["diffuseFactor"].get<std::vector<float>>();
-				memcpy(&DFMat.diffuseFactor, diffFactor.data(),
-					sizeof(DFMat.diffuseFactor));
-			}
-			if (diffSpec.contains("specularFactor")) {
-				auto specularFactor =
-					diffSpec["specularFactor"].get<std::vector<float>>();
-				memcpy(&DFMat.specularFactor, specularFactor.data(),
-					sizeof(DFMat.specularFactor));
-			}
-			if (diffSpec.contains("glossinessFactor")) {
-				DFMat.glossinessFactor = diffSpec["glossinessFactor"].get<float>();
-			}
-			curr.isMetallicRoughness = false;
-			curr.diffuseSpecular = DFMat;
+		else if (material.has_pbr_specular_glossiness) {
+			cgltf_pbr_specular_glossiness pbr = material.pbr_specular_glossiness;
+			DiffuseSpecularMat mat;
+			if(hasTexture(pbr.diffuse_texture))
+				mat.diffuseTex = texturePathHelper(mPath, pbr.diffuse_texture.texture->image->uri);
+			if (hasTexture(pbr.specular_glossiness_texture))
+				mat.specularGlossTex = texturePathHelper(mPath, pbr.specular_glossiness_texture.texture->image->uri);
+			mat.diffuseFactor = glm::make_vec4(pbr.diffuse_factor);
+			mat.specularFactor = glm::make_vec3(pbr.specular_factor);
+			mat.glossinessFactor = pbr.glossiness_factor;
+			pbrMaterial.isMetallicRoughness = false;
+			pbrMaterial.diffuseSpecular = mat;
 		}
-		materials.push_back(curr);
+		else {
+			std::cerr << "Could not load material: " << material.name << std::endl;
+		}
+		materials.push_back(pbrMaterial);
 	}
 	return materials;
 }
+
+//std::vector<MaterialPBR> loadMaterials(std::string gltfFile) {
+//	std::vector<MaterialPBR> materials;
+//	std::ifstream file(gltfFile);
+//	json gltf = json::parse(file);
+//	json materials_gltf = gltf["materials"];
+//	std::string materialname = gltf["materials"][0]["name"].get<std::string>();
+//	for (auto mat = materials_gltf.begin(); mat != materials_gltf.end(); mat++) {
+//		MaterialPBR curr;
+//		if (mat->contains("normalTexture")) {
+//			curr.normalMap = texturePathHelper(gltfFile, gltf, (*mat)["normalTexture"]);
+//			if ((*mat)["normalTexture"].contains("scale")) {
+//				curr.normalScale = (*mat)["normalTexture"]["scale"].get<float>();
+//			}
+//		}
+//		if (mat->contains("pbrMetallicRoughness")) {
+//			MetallicRoughnessMat MRMat;
+//			auto currMetallicRoughness = (*mat)["pbrMetallicRoughness"];
+//			if (currMetallicRoughness.contains("baseColorTexture")) {
+//				MRMat.baseColorTex = texturePathHelper(gltfFile, gltf, currMetallicRoughness["baseColorTexture"]);
+//			}
+//			if (currMetallicRoughness.contains("metallicRoughnessTexture")) {
+//				MRMat.metallicRoughnessTex = texturePathHelper(gltfFile, gltf, currMetallicRoughness["metallicRoughnessTexture"]);
+//			}
+//			if (currMetallicRoughness.contains("baseColorFactor")) {
+//				auto baseColor =
+//					currMetallicRoughness["baseColorFactor"].get<std::vector<float>>();
+//				memcpy(&MRMat.baseColorFactor, baseColor.data(),
+//					sizeof(MRMat.baseColorFactor));
+//			}
+//			if (currMetallicRoughness.contains("metallicFactor")) {
+//				MRMat.metallic_factor =
+//					currMetallicRoughness["metallicFactor"].get<float>();
+//			}
+//			if (currMetallicRoughness.contains("roughnessFactor")) {
+//				MRMat.roughness_factor =
+//					currMetallicRoughness["roughnessFactor"].get<float>();
+//			}
+//			curr.isMetallicRoughness = true;
+//			curr.metallicRoughness = MRMat;
+//		}
+//		else if (mat->contains("extensions") && (*mat)["extensions"].contains("KHR_materials_pbrSpecularGlossiness")) {
+//			DiffuseSpecularMat DFMat;
+//			auto diffSpec = (*mat)["extensions"]["KHR_materials_pbrSpecularGlossiness"];
+//			if (diffSpec.contains("diffuseTexture")) {
+//				DFMat.diffuseTex = texturePathHelper(gltfFile, gltf, diffSpec["diffuseTexture"]);
+//			}
+//			if (diffSpec.contains("specularGlossinessTexture")) {
+//				DFMat.specularGlossTex = texturePathHelper(gltfFile, gltf, diffSpec["specularGlossinessTexture"]);
+//			}
+//			if (diffSpec.contains("diffuseFactor")) {
+//				auto diffFactor =
+//					diffSpec["diffuseFactor"].get<std::vector<float>>();
+//				memcpy(&DFMat.diffuseFactor, diffFactor.data(),
+//					sizeof(DFMat.diffuseFactor));
+//			}
+//			if (diffSpec.contains("specularFactor")) {
+//				auto specularFactor =
+//					diffSpec["specularFactor"].get<std::vector<float>>();
+//				memcpy(&DFMat.specularFactor, specularFactor.data(),
+//					sizeof(DFMat.specularFactor));
+//			}
+//			if (diffSpec.contains("glossinessFactor")) {
+//				DFMat.glossinessFactor = diffSpec["glossinessFactor"].get<float>();
+//			}
+//			curr.isMetallicRoughness = false;
+//			curr.diffuseSpecular = DFMat;
+//		}
+//		materials.push_back(curr);
+//	}
+//	return materials;
+//}
 
 glm::mat4 getNodeLocalTransform(cgltf_node* node) {
 	//returns local transformation of a node
@@ -381,8 +482,8 @@ std::optional<ModelData> loadGLTF(const char* filepath) {
 	std::set<cgltf_mesh*> addedMeshes;
 
 	ModelData modelData;
-	modelData.materials = loadMaterials(filepath);
 
+	modelData.materials = loadMaterials(filepath, model);
 	modelData.meshData.meshes.reserve(loadedMeshes.size());
 	modelData.meshData.transforms.reserve(loadedMeshes.size());
 	modelData.meshData.matIndex.reserve(loadedMeshes.size());

@@ -4,7 +4,15 @@ VulkanStartingOut.vcxproj.user
 VulkanStartingOut.vcxproj
 3DModels/
 x64/
-Shaders/
+Shaders
+.vscode 
 !Shaders/*.vert
 !Shaders/*.frag
 !Shaders/*.comp
+ImageResizer/ImageResizer/ImageResizer.vcxproj
+ImageResizer/ImageResizer/ImageResizer.vcxproj.filters
+ImageResizer/ImageResizer/ImageResizer.vcxproj.user
+ImageResizer/ImageResizer/x64
+ImageResizer.exe
+ImageResizer.pdb
+/Shaders/.vscode/settings.json

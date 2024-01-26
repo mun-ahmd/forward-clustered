@@ -112,30 +112,42 @@ public:
 
 	void performFrame(
 		SwapChain& swapChain,
-		std::function<void(FrameBase<FrameData>&)> performer,
-		std::vector<VkFence> additionalWaitFences,
-		std::vector<std::pair<VkSemaphore, VkPipelineStageFlags>> additionalWaitSemaphores
+		std::function<void(FrameData&)> dataTransferFunc,
+		std::function<void(
+			FrameBase<FrameData>&,
+			std::vector<VkFence>&,
+			std::vector<VkSemaphore>&,
+			std::vector<VkPipelineStageFlags>&
+			)> performer
 	) {
 		imageIndex.reset();
 
-		this->waitFences.clear();
-		for (auto& ele : additionalWaitFences) {
-			this->waitFences.push_back(ele);
-		}
 		this->waitFences.push_back(this->inFlightFence);
 		vkWaitForFences(core->device, this->waitFences.size(), this->waitFences.data(), VK_TRUE, std::numeric_limits<uint64_t>::max());
 
+		//since this frame is currently being presented
+		dataTransferFunc(this->data);
+
 		try {
 			imageIndex = swapChain.acquireNextImage(core->device, imageAvailableSemaphore);
+			vkResetFences(core->device, this->waitFences.size(), this->waitFences.data());
+			this->waitFences.clear();
 		}
 		catch (const OutOfDateSwapChainError& err) {
+			this->waitFences.clear();
 			throw err;
 		}
 
-		vkResetFences(core->device, this->waitFences.size(), this->waitFences.data());
 		vkResetCommandBuffer(commandBuffer, 0);
 
-		performer(*this);
+		this->waitSemaphores.clear();
+		this->waitStageMasks.clear();
+		
+		performer(*this, this->waitFences, this->waitSemaphores, this->waitStageMasks);
+
+		assert(this->waitSemaphores.size() == this->waitStageMasks.size());
+		this->waitSemaphores.push_back(imageAvailableSemaphore);
+		this->waitStageMasks.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 
 		if (!imageIndex.has_value()) {
 			//no frame in flight
@@ -143,15 +155,6 @@ public:
 		}
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-
-		this->waitSemaphores.clear();
-		this->waitStageMasks.clear();
-		for (auto& pair : additionalWaitSemaphores) {
-			this->waitSemaphores.push_back(pair.first);
-			this->waitStageMasks.push_back(pair.second);
-		}
-		this->waitSemaphores.push_back(imageAvailableSemaphore);
-		this->waitStageMasks.push_back(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 
 		submitInfo.waitSemaphoreCount = this->waitSemaphores.size();
 		submitInfo.pWaitSemaphores = this->waitSemaphores.data();
@@ -288,7 +291,11 @@ private:
 			try {
 				while (directoryQueueIndex < directoryQueue.size()) {
 					for (const auto& entry : fs::directory_iterator(directoryQueue[directoryQueueIndex])) {
-						if (fs::is_regular_file(entry) && entry.path().extension() == ".gltf") {
+						if (
+							fs::is_regular_file(entry) &&
+								(entry.path().extension() == ".gltf" ||
+								entry.path().extension() == ".glb")
+							) {
 							std::cout << "Found .gltf file: " << entry.path() << std::endl;
 							discoveredGLTFModelPaths.push_back(entry.path().generic_string());
 						}
@@ -337,10 +344,102 @@ private:
 		transforms = loadedModel.meshData.transforms;
 		materials.reserve(loadedModel.meshData.meshes.size());
 
+		std::vector<RC<Image>> images;
+
 		Material::clear();
+
+		Material::addMaterialImage(
+			loadImage(
+				R"(C:\Users\munee\source\repos\VulkanStartingOut\3DModels\purple_vaibhav.png)",
+				4,
+				true
+			), vSampler
+		);
+
+		std::unordered_map<std::string, unsigned int> imagePathToIndex;
+		std::vector<std::string> imagePaths = { R"(C:\Users\munee\source\repos\VulkanStartingOut\3DModels\blankVaibhav.png)" };
+		//empty path means default 0 texture
+		imagePathToIndex[""] = 0;
+		for (auto& mat : loadedModel.materials) {
+			const char* textures[2];
+			if (mat.isMetallicRoughness) {
+				textures[0] = mat.metallicRoughness.baseColorTex.c_str();
+				textures[1] = mat.metallicRoughness.metallicRoughnessTex.c_str();
+			}
+			else {
+				textures[0] = mat.diffuseSpecular.diffuseTex.c_str();
+				textures[1] = mat.diffuseSpecular.specularGlossTex.c_str();
+			}
+			
+			for (int i = 0; i < 2; i++) {
+				std::string tex = textures[i];
+				if (
+					imagePathToIndex.find(tex) == imagePathToIndex.end()
+					) {
+					//todo taking too long and too big
+					// use https://github.com/nothings/stb/blob/master/stb_image_resize2.h
+					// to reduce sizes of images
+					auto cachedPath = fs::path("3DModels/ImageCache") / fs::path(tex).filename();
+					std::string finalPath = tex;
+					std::optional resizeSize = glm::ivec2(256, 256);
+					if (fs::is_regular_file(cachedPath)) {
+						finalPath = cachedPath.generic_string();
+						resizeSize = std::nullopt;
+					}
+					imagePaths.push_back(finalPath);
+					imagePathToIndex[tex] =
+						Material::addMaterialImage(
+							loadImage(finalPath.c_str(), i == 0 ? 4 : 2, i == 0, resizeSize), vSampler
+						);
+				}
+				std::cout << std::endl << std::endl;
+			}
+		}
+		
 		for (auto& matIndex : loadedModel.meshData.matIndex) {
-			matIndex = materials.size();
-			materials.push_back(Material::create(core, commandPool, randomMaterial()));
+			MaterialInfo matInf{};
+			MaterialPBR loadedMat = loadedModel.materials[matIndex];
+			matInf.baseColorFactor = loadedMat.isMetallicRoughness ?
+				loadedMat.metallicRoughness.baseColorFactor :
+				loadedMat.diffuseSpecular.diffuseFactor;
+
+			matInf.metallicRoughness_waste2 = loadedMat.isMetallicRoughness ?
+				glm::vec4(
+					glm::vec2(
+						loadedMat.metallicRoughness.metallic_factor,
+						loadedMat.metallicRoughness.roughness_factor
+					), 1.0, 1.0
+				) :
+				glm::vec4(
+					loadedMat.diffuseSpecular.specularFactor,
+					loadedMat.diffuseSpecular.glossinessFactor
+				);
+
+			matInf.baseTexId_metallicRoughessTexId_waste2 =
+				glm::uvec4(
+					glm::uvec2(
+						loadedMat.isMetallicRoughness ?
+						imagePathToIndex[
+							loadedMat.metallicRoughness.baseColorTex
+						] :
+						imagePathToIndex[
+							loadedMat.diffuseSpecular.diffuseTex
+						],
+								loadedMat.isMetallicRoughness ?
+								imagePathToIndex[
+									loadedMat.metallicRoughness.metallicRoughnessTex
+								] :
+								imagePathToIndex[
+									loadedMat.diffuseSpecular.specularGlossTex
+								]
+					),
+					0, 0
+				);
+			std::cout << std::endl << "Material: " << matIndex;
+			std::cout << imagePaths[matInf.baseTexId_metallicRoughessTexId_waste2.x] << " ";
+			std::cout << imagePaths[matInf.baseTexId_metallicRoughessTexId_waste2.y] << std::endl;
+
+			materials.push_back(Material::create(core, commandPool, matInf));
 		}
 		meshMatIndices = std::vector<uint32_t>(
 			loadedModel.meshData.matIndex.begin(),
@@ -355,9 +454,9 @@ private:
 
 		for (auto& light : pointLights) {
 			auto rm = randomMaterial();
-			light.position = glm::normalize(glm::vec3(rm.diffuseColor));
+			light.position = glm::normalize(glm::vec3(rm.baseColorFactor));
 			light.radius = 1.0f;
-			light.color = rm.diffuseColor;
+			light.color = rm.baseColorFactor;
 		}
 
 		for (auto& frame : this->frames) {
@@ -490,6 +589,9 @@ private:
 		vkDestroyFence(core->device, frame->clusterCompFence, nullptr);
 	}
 
+	RC<Image> vImage;
+	RC<Sampler> vSampler;
+
 	void initVulkan() {
 		core = VulkanUtils::utils().getCore();
 
@@ -508,8 +610,12 @@ private:
 		auto swapCapabilities = core->querySwapChainSupport();
 		auto swapChainFormat = chooseSwapSurfaceFormat(swapCapabilities.formats);
 		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
-		Material::init(core, 1000);
-		materialsDescriptorSet = Material::createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT);
+		
+		Material::init(1000);
+		materialsDescriptorSet = Material::getDescriptorSet();
+		
+		vSampler = Sampler::create(core, Sampler::makeCreateInfo());
+
 		initLights();
 		createRenderPass(swapChainFormat.format);
 		createGraphicsPipeline();
@@ -569,9 +675,88 @@ private:
 		//compute clusters buffer once before first frame
 		//computeClusters(frames.front());
 
+		bool hasModelChanged = false;
+
+		auto dataTransferActions =
+			[&](FrameData& transferFrameData) {
+			//cpu<-->gpu transfers should be done here
+			// this frame is currently not in flight
+			// next image has not yet been acquired
+
+			memcpy(
+				transferFrameData.globalDescBufferMappedPointer,
+				&gDescValue,
+				sizeof(globalDescriptor)
+			);
+
+			PointLightLength length;
+			length.length = 0;
+			transferFrameData.lightIndexBuffer.updateBase(core, commandPool, length);
+		};
+
 		auto frameActions =
-			[&](Frame& activeFrame) {
-			memcpy(activeFrame.data.globalDescBufferMappedPointer, &gDescValue, sizeof(globalDescriptor));
+			[&](Frame& activeFrame,
+				std::vector<VkFence>& additionalWaitFences,
+				std::vector<VkSemaphore>& additionalWaitSemaphores,
+				std::vector<VkPipelineStageFlags>& waitPipelineStageFlags) {
+			//perform no cpu<->gpu transfers here
+			this->imgui.newFrame();
+			this->imgui.test();
+			gltfModelSelector.render([&hasModelChanged]() { hasModelChanged = true; });
+
+			ImGui::Begin("Camera settings");
+			if (ImGui::SliderFloat("movement speed", &camera.movementSpeed(), 0.1, 10.0)) {}
+			float camF3[3] = { camera.get_pos().x, camera.get_pos().y, camera.get_pos().z };
+			if (ImGui::InputFloat3("position", camF3)) {
+				camera.set_pos(glm::make_vec3(camF3));
+			}
+			float camViewF3[3] = { camera.get_front().x, camera.get_front().y, camera.get_front().z };
+			if (ImGui::InputFloat3("camera direction", camViewF3)) {
+				glm::vec3 newFront = glm::normalize(glm::make_vec3(camViewF3));
+				if (glm::all(glm::equal(newFront, glm::vec3(0.0, 0.0, 0.0))));
+				camera.set_front(newFront);
+			}
+			ImGui::End();
+
+			//compute clusters
+			{
+				VkCommandBufferBeginInfo beginInfo{};
+				beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+				beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+				if (vkBeginCommandBuffer(activeFrame.data.computeCommandBuffer, &beginInfo) != VK_SUCCESS) {
+					throw std::runtime_error("failed to begin recording command buffer!");
+				}
+
+				vkCmdBindPipeline(activeFrame.data.computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clusterComp.pipe);
+				glm::vec4 zBoundsVec = glm::vec4(nearPlane, farPlane, 0.0, 0.0);
+				vkCmdPushConstants(activeFrame.data.computeCommandBuffer, clusterComp.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(glm::vec4), &zBoundsVec);
+				VkDescriptorSet descriptors[3] = { activeFrame.data.globalDS, activeFrame.data.pointLightsDS, activeFrame.data.clusterCompDS };
+				vkCmdBindDescriptorSets(
+					activeFrame.data.computeCommandBuffer,
+					VK_PIPELINE_BIND_POINT_COMPUTE,
+					clusterComp.layout, 0, 3, descriptors,
+					0, 0
+				);
+
+				vkCmdDispatch(activeFrame.data.computeCommandBuffer, 32, 32, 4);
+
+
+				if (vkEndCommandBuffer(activeFrame.data.computeCommandBuffer) != VK_SUCCESS) {
+					throw std::runtime_error("failed to record command buffer!");
+				}
+
+				VkSubmitInfo submitInfo{};
+				submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+				submitInfo.commandBufferCount = 1;
+				submitInfo.pCommandBuffers = &activeFrame.data.computeCommandBuffer;
+				submitInfo.waitSemaphoreCount = 0;
+				submitInfo.signalSemaphoreCount = 1;
+				submitInfo.pSignalSemaphores = &activeFrame.data.clusterCompSemaphore;
+				vkQueueSubmit(core->graphicsQueue, 1, &submitInfo, activeFrame.data.clusterCompFence);
+			}
+			//end compute clusters
+
 			VkCommandBufferBeginInfo beginInfo{};
 			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 			beginInfo.flags = 0; // Optional
@@ -677,9 +862,12 @@ private:
 			if (vkEndCommandBuffer(activeFrame.commandBuffer) != VK_SUCCESS) {
 				throw std::runtime_error("failed to record command buffer!");
 			}
-			};
 
-		bool hasModelChanged = false;
+			additionalWaitFences.push_back(activeFrame.data.clusterCompFence);
+			additionalWaitSemaphores.push_back(activeFrame.data.clusterCompSemaphore);
+			waitPipelineStageFlags.push_back(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+		};
+
 
 		while (!glfwWindowShouldClose(core->window)) {
 			try {
@@ -716,39 +904,10 @@ private:
 					(float)glfwGetTime()
 				);
 
-				this->imgui.newFrame();
-				this->imgui.test();
-				gltfModelSelector.render([&hasModelChanged]() { hasModelChanged = true; });
-
-				ImGui::Begin("Camera settings");
-				if (ImGui::SliderFloat("movement speed", &camera.movementSpeed(), 0.1, 10.0)) {}
-				float camF3[3] = { camera.get_pos().x, camera.get_pos().y, camera.get_pos().z };
-				if(ImGui::InputFloat3("position", camF3)) {
-					camera.set_pos(glm::make_vec3(camF3));
-				}
-				float camViewF3[3] = { camera.get_front().x, camera.get_front().y, camera.get_front().z };
-				if (ImGui::InputFloat3("camera direction", camViewF3)) {
-					glm::vec3 newFront = glm::normalize(glm::make_vec3(camViewF3));
-					if (glm::all(glm::equal(newFront, glm::vec3(0.0, 0.0, 0.0))));
-					camera.set_front(newFront);
-				}
-				ImGui::End();
-
-				computeClusters(frames[current_frame]);
-
-				vkWaitForFences(
-					core->device,
-					1,
-					&frames[current_frame].data.clusterCompFence,
-					true,
-					1000 * 1000 * 1000
-				);
-
 				frames[current_frame].performFrame(
 					swapChain,
-					frameActions,
-					{ frames[current_frame].data.clusterCompFence },
-					{ {frames[current_frame].data.clusterCompSemaphore, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT} }
+					dataTransferActions,
+					frameActions
 				);
 
 				current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
@@ -762,45 +921,95 @@ private:
 		vkDeviceWaitIdle(core->device);
 	}
 
-	void computeClusters(Frame& anyFrame) {
-		PointLightLength length;
-		length.length = 0;
-		anyFrame.data.lightIndexBuffer.updateBase(core, commandPool, length);
+	RC<Image> loadImage(
+		const char* filepath,
+		int desiredChannels,
+		bool isSRGB,
+		std::optional<glm::ivec2> desiredResolution = {}
+	) {
+		assert(desiredChannels == 4 || desiredChannels == 2 || desiredChannels == 1);
+		//loads images from files and then
+		//creates a VkImage trying its best to find the right format
+		int iw, ih, ic;
+		auto imageData = loadImageFromFile(
+			filepath,
+			&iw,
+			&ih,
+			&ic,
+			desiredChannels);
 
-		VkCommandBufferBeginInfo beginInfo{};
-		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		std::cout << "Image: " << filepath << " was " << iw << "x" << ih << " pixels" << std::endl;
 
-		if (vkBeginCommandBuffer(anyFrame.data.computeCommandBuffer, &beginInfo) != VK_SUCCESS) {
-			throw std::runtime_error("failed to begin recording command buffer!");
+		if (desiredResolution.has_value() && glm::ivec2(iw, ih) != desiredResolution.value()) {
+			//need to resize image
+			imageData = resizeImage(
+				std::move(imageData),
+				desiredChannels,
+				iw,
+				ih,
+				desiredResolution->x,
+				desiredResolution->y,
+				true
+			);
+
+			iw = desiredResolution->x;
+			ih = desiredResolution->y;
 		}
 
-		vkCmdBindPipeline(anyFrame.data.computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clusterComp.pipe);
-		glm::vec4 zBoundsVec = glm::vec4(nearPlane, farPlane, 0.0, 0.0);
-		vkCmdPushConstants(anyFrame.data.computeCommandBuffer, clusterComp.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(glm::vec4), &zBoundsVec);
-		VkDescriptorSet descriptors[3] = { anyFrame.data.globalDS, anyFrame.data.pointLightsDS, anyFrame.data.clusterCompDS };
-		vkCmdBindDescriptorSets(
-			anyFrame.data.computeCommandBuffer,
-			VK_PIPELINE_BIND_POINT_COMPUTE,
-			clusterComp.layout, 0, 3, descriptors,
-			0, 0
+		auto stagingBuf = prepareStagingBuffer(core, imageData.get(), ((long long)desiredChannels) * iw * ih);
+
+		imageData.release();
+
+		constexpr VkFormat formats[4][2] = {
+			{
+				VK_FORMAT_R8_UNORM,
+				VK_FORMAT_R8_SRGB
+			},
+			{
+				VK_FORMAT_R8G8_UNORM,
+				VK_FORMAT_R8G8_SRGB
+			},
+			{
+				VK_FORMAT_R8G8B8_UNORM,
+				VK_FORMAT_R8G8B8_SRGB
+			},
+			{
+				VK_FORMAT_R8G8B8A8_UNORM,
+				VK_FORMAT_R8G8B8A8_SRGB
+			}
+		};
+
+		auto iCreateInf = Image::makeCreateInfo(
+			formats[desiredChannels - 1][isSRGB],
+			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			VkExtent3D{ (unsigned int)iw, (unsigned int)ih, 1 }
+		);
+		iCreateInf.mipLevels = 1;
+
+		vImage = Image::create(
+			core,
+			iCreateInf,
+			VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT
 		);
 
-		vkCmdDispatch(anyFrame.data.computeCommandBuffer, 32, 32, 4);
+		VkBufferImageCopy region{};
+		region.bufferOffset = 0;
+		region.bufferRowLength = 0;
+		region.bufferImageHeight = 0;
 
+		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.imageSubresource.mipLevel = 0;
+		region.imageSubresource.baseArrayLayer = 0;
+		region.imageSubresource.layerCount = 1;
 
-		if (vkEndCommandBuffer(anyFrame.data.computeCommandBuffer) != VK_SUCCESS) {
-			throw std::runtime_error("failed to record command buffer!");
-		}
+		region.imageOffset = { 0, 0, 0 };
+		region.imageExtent = vImage->extent;
 
-		VkSubmitInfo submitInfo{};
-		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &anyFrame.data.computeCommandBuffer;
-		submitInfo.waitSemaphoreCount = 0;
-		submitInfo.signalSemaphoreCount = 1;
-		submitInfo.pSignalSemaphores = &anyFrame.data.clusterCompSemaphore;
-		vkQueueSubmit(core->graphicsQueue, 1, &submitInfo, anyFrame.data.clusterCompFence);
+		vImage->transitionImageLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		vImage->copyFromBuffer(stagingBuf, region);
+		vImage->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+		return vImage;
 	}
 
 	void createClusterComputePipeline() {
