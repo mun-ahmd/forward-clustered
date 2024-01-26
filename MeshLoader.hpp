@@ -1,26 +1,10 @@
 #pragma once
 #include <any>
+#include <string>
+#include <vector>
+#include <optional>
+
 #include <glm/glm.hpp>
-
-typedef std::unique_ptr<unsigned char[], void(*)(void*)> ImagePtr;
-
-ImagePtr loadImageFromFile(
-	const char* filename,
-	int* width,
-	int* height,
-	int* actualChannels,
-	int desiredChannels
-);
-
-ImagePtr resizeImage(
-	ImagePtr image,
-	int numChannels,
-	int oldWidth,
-	int oldHeight,
-	int newWidth,
-	int newHeight,
-	bool isSRGB
-);
 
 template<typename T>
 struct MeshData {

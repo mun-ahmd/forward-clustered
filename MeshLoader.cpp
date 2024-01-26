@@ -17,68 +17,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
 
-#include "json.hpp"
-using json = nlohmann::json;
-
-#include "MeshLoader.h"
-
-#define STB_IMAGE_IMPLEMENTATION
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image.h"
-#include "stb_image_write.h"
-
-ImagePtr loadImageFromFile(
-	const char* filename,
-	int* width,
-	int* height,
-	int* actualChannels,
-	int desiredChannels
-){
-	return std::unique_ptr<unsigned char[], void(*)(void*)>(
-		stbi_load(filename, width, height, actualChannels, desiredChannels),
-		[](void* ptr) {
-			stbi_image_free(ptr);
-		}
-	);
-}
-
-
-#define STB_IMAGE_RESIZE_IMPLEMENTATION
-#include "stb_image_resize2.h"
-
-ImagePtr resizeImage(
-	ImagePtr image,
-	int numChannels,
-	int oldWidth,
-	int oldHeight,
-	int newWidth,
-	int newHeight,
-	bool isSRGB
-) {
-	unsigned char* newImage = (unsigned char*)malloc(sizeof(unsigned char) * newWidth * newHeight * numChannels);
-	constexpr stbir_pixel_layout pixelLayouts[4] = {
-		STBIR_1CHANNEL,
-		STBIR_2CHANNEL,
-		STBIR_RGB,
-		STBIR_RGBA
-	};
-	auto pixelLayout = pixelLayouts[numChannels - 1];
-
-	if (isSRGB) {
-		stbir_resize_uint8_srgb(image.get(), oldWidth, oldHeight, 0, newImage, newWidth, newHeight, 0, pixelLayout);
-	}
-	else {
-		stbir_resize_uint8_linear(image.get(), oldWidth, oldHeight, 0, newImage, newWidth, newHeight, 0, pixelLayout);
-	}
-
-	return ImagePtr(
-		newImage,
-		[](void* ptr) {
-			free(ptr);
-		}
-	);
-}
-
+#include "MeshLoader.hpp"
 
 #define CGLTF_IMPLEMENTATION
 #include "cgltf/cgltf.h"
@@ -343,78 +282,6 @@ std::vector<MaterialPBR> loadMaterials(std::string mPath, ModelInterface& model)
 	return materials;
 }
 
-//std::vector<MaterialPBR> loadMaterials(std::string gltfFile) {
-//	std::vector<MaterialPBR> materials;
-//	std::ifstream file(gltfFile);
-//	json gltf = json::parse(file);
-//	json materials_gltf = gltf["materials"];
-//	std::string materialname = gltf["materials"][0]["name"].get<std::string>();
-//	for (auto mat = materials_gltf.begin(); mat != materials_gltf.end(); mat++) {
-//		MaterialPBR curr;
-//		if (mat->contains("normalTexture")) {
-//			curr.normalMap = texturePathHelper(gltfFile, gltf, (*mat)["normalTexture"]);
-//			if ((*mat)["normalTexture"].contains("scale")) {
-//				curr.normalScale = (*mat)["normalTexture"]["scale"].get<float>();
-//			}
-//		}
-//		if (mat->contains("pbrMetallicRoughness")) {
-//			MetallicRoughnessMat MRMat;
-//			auto currMetallicRoughness = (*mat)["pbrMetallicRoughness"];
-//			if (currMetallicRoughness.contains("baseColorTexture")) {
-//				MRMat.baseColorTex = texturePathHelper(gltfFile, gltf, currMetallicRoughness["baseColorTexture"]);
-//			}
-//			if (currMetallicRoughness.contains("metallicRoughnessTexture")) {
-//				MRMat.metallicRoughnessTex = texturePathHelper(gltfFile, gltf, currMetallicRoughness["metallicRoughnessTexture"]);
-//			}
-//			if (currMetallicRoughness.contains("baseColorFactor")) {
-//				auto baseColor =
-//					currMetallicRoughness["baseColorFactor"].get<std::vector<float>>();
-//				memcpy(&MRMat.baseColorFactor, baseColor.data(),
-//					sizeof(MRMat.baseColorFactor));
-//			}
-//			if (currMetallicRoughness.contains("metallicFactor")) {
-//				MRMat.metallic_factor =
-//					currMetallicRoughness["metallicFactor"].get<float>();
-//			}
-//			if (currMetallicRoughness.contains("roughnessFactor")) {
-//				MRMat.roughness_factor =
-//					currMetallicRoughness["roughnessFactor"].get<float>();
-//			}
-//			curr.isMetallicRoughness = true;
-//			curr.metallicRoughness = MRMat;
-//		}
-//		else if (mat->contains("extensions") && (*mat)["extensions"].contains("KHR_materials_pbrSpecularGlossiness")) {
-//			DiffuseSpecularMat DFMat;
-//			auto diffSpec = (*mat)["extensions"]["KHR_materials_pbrSpecularGlossiness"];
-//			if (diffSpec.contains("diffuseTexture")) {
-//				DFMat.diffuseTex = texturePathHelper(gltfFile, gltf, diffSpec["diffuseTexture"]);
-//			}
-//			if (diffSpec.contains("specularGlossinessTexture")) {
-//				DFMat.specularGlossTex = texturePathHelper(gltfFile, gltf, diffSpec["specularGlossinessTexture"]);
-//			}
-//			if (diffSpec.contains("diffuseFactor")) {
-//				auto diffFactor =
-//					diffSpec["diffuseFactor"].get<std::vector<float>>();
-//				memcpy(&DFMat.diffuseFactor, diffFactor.data(),
-//					sizeof(DFMat.diffuseFactor));
-//			}
-//			if (diffSpec.contains("specularFactor")) {
-//				auto specularFactor =
-//					diffSpec["specularFactor"].get<std::vector<float>>();
-//				memcpy(&DFMat.specularFactor, specularFactor.data(),
-//					sizeof(DFMat.specularFactor));
-//			}
-//			if (diffSpec.contains("glossinessFactor")) {
-//				DFMat.glossinessFactor = diffSpec["glossinessFactor"].get<float>();
-//			}
-//			curr.isMetallicRoughness = false;
-//			curr.diffuseSpecular = DFMat;
-//		}
-//		materials.push_back(curr);
-//	}
-//	return materials;
-//}
-
 glm::mat4 getNodeLocalTransform(cgltf_node* node) {
 	//returns local transformation of a node
 	glm::mat4 localTransform;
@@ -457,7 +324,6 @@ glm::mat4 getNodeGlobalTransform(cgltf_node* node) {
 		globalTransform = getNodeLocalTransform(curr) * globalTransform;
 		curr = curr->parent;
 	}
-	//std::cout << node->name << " -> xyz: (" << globalTransform[3][0] <<  ", " << globalTransform[3][1] << ", "  << globalTransform[3][2] << ")" << std::endl;
 	return globalTransform;
 }
 
@@ -503,23 +369,3 @@ std::optional<ModelData> loadGLTF(const char* filepath) {
 	cgltf_free(data);
 	return modelData;
 }
-//
-//#include "fast_obj.h"
-//void loadOBJ(const char* filepath) {
-//    auto loaded = fast_obj_read(filepath);
-//    ModelData modelData;
-//    modelData.materials.reserve(loaded->material_count);
-//    for (int i = 0; i < loaded->material_count; i++) {
-//        auto cats = loaded->materials[i];
-//        int is = &cats - &cats;
-//        MaterialPBR mat;
-//        mat.isMetallicRoughness = false;
-//        DiffuseSpecularMat dfMat;
-//        dfMat.diffuseFactor = glm::vec4(glm::make_vec3(cats.Kd), 1.0);
-//        if (cats.map_Kd.path) {
-//            dfMat.diffuseTex = cats.map_Kd.path;
-//        }
-//        modelData.materials.push_back(mat)
-////        modelData.materials.push_back();
-//    }
-//}

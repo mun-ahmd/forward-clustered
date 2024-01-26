@@ -18,7 +18,8 @@
 #define GLM_FORCE_LEFT_HANDED
 
 #include "vulkan_utils.hpp"
-#include "MeshLoader.h"
+#include "MeshLoader.hpp"
+#include "ImageLoader.hpp"
 #include "cameraObj.h"
 #include "resources.hpp"
 #include "imgui_helper.hpp"
@@ -299,6 +300,48 @@ private:
 		}
 	}
 
+	RC<Image> vImage;
+	RC<Sampler> vSampler;
+
+	void initVulkan() {
+		core = VulkanUtils::utils().getCore();
+
+		commandPool = VulkanUtils::utils().getCommandPool();
+
+		int i = 0;
+		for (auto& frame : frames) {
+			frame = Frame(
+				core, commandPool,
+				std::bind(&Application::frameInitializer, this, std::placeholders::_1),
+				std::bind(&Application::frameDestructor, this, std::placeholders::_1)
+			);
+
+			i++;
+		}
+		auto swapCapabilities = core->querySwapChainSupport();
+		auto swapChainFormat = chooseSwapSurfaceFormat(swapCapabilities.formats);
+		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
+		
+		Material::init(1000);
+		materialsDescriptorSet = Material::getDescriptorSet();
+		
+		vSampler = Sampler::create(core, Sampler::makeCreateInfo());
+
+		initLights();
+		createRenderPass(swapChainFormat.format);
+		createGraphicsPipeline();
+		createDepthPrePassPipeline();
+		createClusterComputePipeline();
+		swapChain = SwapChain(core, swapChainFormat, swapPresentMode, chooseSwapExtent(swapCapabilities.capabilities), renderPass);
+		initMeshesMaterials();
+		imgui.init(core, this->renderPass, this->frames[0].commandBuffer, 1);
+
+	}
+
+
+	bool hasModelChanged = false;
+	globalDescriptor gDescValue{};
+
 	void frameInitializer(FrameData* frame) {
 		frame->globalDescBuffer = Buffer::create(core, sizeof(globalDescriptor), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, (VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT), 0);
 		frame->globalDescBufferMappedPointer = frame->globalDescBuffer->allocation->GetMappedData();
@@ -423,48 +466,6 @@ private:
 		vkDestroySemaphore(core->device, frame->clusterCompSemaphore, nullptr);
 		vkDestroyFence(core->device, frame->clusterCompFence, nullptr);
 	}
-
-	RC<Image> vImage;
-	RC<Sampler> vSampler;
-
-	void initVulkan() {
-		core = VulkanUtils::utils().getCore();
-
-		commandPool = VulkanUtils::utils().getCommandPool();
-
-		int i = 0;
-		for (auto& frame : frames) {
-			frame = Frame(
-				core, commandPool,
-				std::bind(&Application::frameInitializer, this, std::placeholders::_1),
-				std::bind(&Application::frameDestructor, this, std::placeholders::_1)
-			);
-
-			i++;
-		}
-		auto swapCapabilities = core->querySwapChainSupport();
-		auto swapChainFormat = chooseSwapSurfaceFormat(swapCapabilities.formats);
-		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
-		
-		Material::init(1000);
-		materialsDescriptorSet = Material::getDescriptorSet();
-		
-		vSampler = Sampler::create(core, Sampler::makeCreateInfo());
-
-		initLights();
-		createRenderPass(swapChainFormat.format);
-		createGraphicsPipeline();
-		createDepthPrePassPipeline();
-		createClusterComputePipeline();
-		swapChain = SwapChain(core, swapChainFormat, swapPresentMode, chooseSwapExtent(swapCapabilities.capabilities), renderPass);
-		initMeshesMaterials();
-		imgui.init(core, this->renderPass, this->frames[0].commandBuffer, 1);
-
-	}
-
-
-	bool hasModelChanged = false;
-	globalDescriptor gDescValue{};
 
 	void dataTransferActions(FrameData& transferFrameData) {
 		//cpu<-->gpu transfers should be done here
@@ -765,61 +766,50 @@ private:
 		assert(desiredChannels == 4 || desiredChannels == 2 || desiredChannels == 1);
 		//loads images from files and then
 		//creates a VkImage trying its best to find the right format
-		int iw, ih, ic;
-		auto imageData = loadImageFromFile(
+		ImagePtr imageData = loadImageFromFile(
 			filepath,
-			&iw,
-			&ih,
-			&ic,
-			desiredChannels);
+			isSRGB,
+			desiredChannels
+		);
 
-		std::cout << "Image: " << filepath << " was " << iw << "x" << ih << " pixels" << std::endl;
+		std::cout << "Image: " << filepath << " was " << imageData->getWidth() << "x" << imageData->getHeight() << " pixels" << std::endl;
 
-		if (desiredResolution.has_value() && glm::ivec2(iw, ih) != desiredResolution.value()) {
+		if (
+			desiredResolution.has_value() &&
+			(imageData->getResolution() != desiredResolution.value())
+			) {
 			//need to resize image
-			imageData = resizeImage(
-				std::move(imageData),
-				desiredChannels,
-				iw,
-				ih,
-				desiredResolution->x,
-				desiredResolution->y,
-				true
-			);
-
-			iw = desiredResolution->x;
-			ih = desiredResolution->y;
+			imageData = std::move(imageData->resize(desiredResolution->x, desiredResolution->y));
 		}
 
-		auto stagingBuf = prepareStagingBuffer(core, imageData.get(), ((long long)desiredChannels) * iw * ih);
-
-		imageData.release();
-
 		constexpr VkFormat formats[4][2] = {
-			{
-				VK_FORMAT_R8_UNORM,
-				VK_FORMAT_R8_SRGB
-			},
-			{
-				VK_FORMAT_R8G8_UNORM,
-				VK_FORMAT_R8G8_SRGB
-			},
-			{
-				VK_FORMAT_R8G8B8_UNORM,
-				VK_FORMAT_R8G8B8_SRGB
-			},
-			{
-				VK_FORMAT_R8G8B8A8_UNORM,
-				VK_FORMAT_R8G8B8A8_SRGB
-			}
+	{
+		VK_FORMAT_R8_UNORM,
+		VK_FORMAT_R8_SRGB
+	},
+	{
+		VK_FORMAT_R8G8_UNORM,
+		VK_FORMAT_R8G8_SRGB
+	},
+	{
+		VK_FORMAT_R8G8B8_UNORM,
+		VK_FORMAT_R8G8B8_SRGB
+	},
+	{
+		VK_FORMAT_R8G8B8A8_UNORM,
+		VK_FORMAT_R8G8B8A8_SRGB
+	}
 		};
-
 		auto iCreateInf = Image::makeCreateInfo(
 			formats[desiredChannels - 1][isSRGB],
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-			VkExtent3D{ (unsigned int)iw, (unsigned int)ih, 1 }
+			VkExtent3D{ (unsigned int)imageData->getWidth(), (unsigned int)imageData->getHeight(), 1 }
 		);
 		iCreateInf.mipLevels = 1;
+
+		auto stagingBuf = prepareStagingBuffer(core, imageData->getData(), imageData->getSizeInBytes());
+
+		imageData.release();
 
 		vImage = Image::create(
 			core,

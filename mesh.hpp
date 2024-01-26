@@ -1,7 +1,7 @@
 #pragma once
 #include <array>
 
-#include "MeshLoader.h"
+#include "MeshLoader.hpp"
 
 #include "core.hpp"
 #include "buffer.hpp"
