@@ -8,9 +8,9 @@ struct MaterialInfo {
 	glm::uvec4 baseTexId_metallicRoughessTexId_waste2;
 };
 
-class Material : public DUResource<MaterialInfo> {
+class Materials : public DUResource<MaterialInfo> {
 private:
-	static void createMaterialsDescriptorSet() {
+	void createMaterialsDescriptorSet() {
 		VkDescriptorSetLayoutBinding binding0{};
 		{
 			binding0.binding = 0;
@@ -43,22 +43,63 @@ private:
 			write0.dstSet = descriptor;
 			write0.dstBinding = 0;
 			VkDescriptorBufferInfo inf{};
-			inf.buffer = Material::resourceBuf->buffer;
+			inf.buffer = this->resourceBuf->buffer;
 			inf.offset = 0;
-			inf.range = sizeof(Material::resourceInfo);
+			inf.range = sizeof(MaterialInfo);
 			write0.pBufferInfo = &inf;
 		}
 		vkUpdateDescriptorSets(VulkanUtils::utils().getCore()->device, 1, &write0, 0, nullptr);
 		descriptorSet = descriptor;
 	}
-public:
-	inline static std::vector<UniqueImageView> materialImages;
-	inline static RC<Sampler> sampler;
-	inline static VkDescriptorSet descriptorSet;
 
-	static unsigned int addMaterialImage(RC<Image> vImage, RC<Sampler> vSampler) {
-		sampler = vSampler;
+public:
+	std::vector<UniqueImageView> materialImages;
+	std::vector<RC<Sampler>> materialSamplers;
+
+	std::vector<MaterialInfo> materialInfos;
+
+	VkDescriptorSet descriptorSet;
+
+	void init(size_t maxMaterialsCount) {
+		DUResource<MaterialInfo>::init(maxMaterialsCount);
+		createMaterialsDescriptorSet();
+	}
+	
+	void clear() {
+		this->materialImages.clear();
+		this->materialInfos.clear();
+		this->materialInfos.clear();
+		this->clearBuffer();
+	}
+
+	VkDescriptorSet getDescriptorSet() {
+		return descriptorSet;
+	}
+
+	void addMaterial(VulkanCore core, VkCommandPool pool, MaterialInfo info) {
+		this->addResource(core, pool, info);
+		this->materialInfos.push_back(info);
+	}
+
+	void reserve(size_t size) {
+		this->materialInfos.reserve(size);
+	}
+
+	MaterialInfo& operator[](size_t index) {
+		return this->materialInfos[index];
+	}
+
+	const MaterialInfo& operator[](size_t index) const {
+		return this->materialInfos[index];
+	}
+
+	unsigned int addMaterialImage(RC<Image> vImage, RC<Sampler> vSampler) {
 		unsigned int index = materialImages.size();
+		
+		materialSamplers.push_back(
+			vSampler
+		);
+
 		materialImages.push_back(
 			getImageView(
 				vImage,
@@ -78,36 +119,10 @@ public:
 		VkDescriptorImageInfo imageInfo{};
 		imageInfo.imageLayout = vImage->layout;
 		imageInfo.imageView = materialImages[index]->view;
-		imageInfo.sampler = sampler->sampler;
+		imageInfo.sampler = materialSamplers[index]->sampler;
 		write1.pImageInfo = &imageInfo;
 		vkUpdateDescriptorSets(VulkanUtils::utils().getCore()->device, 1, &write1, 0, nullptr);
 		return index;
-	}
-
-	static void clear() {
-		for (int i = 0; i < materialImages.size(); i++) {
-			//if (materialImages[i].use_count() != 1) {
-			//	std::cout << 
-			//		"Warning: cleared materials but image " << i << 
-			//		" is not unique"<< std::endl;
-			//}
-		}
-		materialImages.clear();
-	}
-
-	static void init(size_t maxMaterialsCount) {
-		DUResource<MaterialInfo>::init(VulkanUtils::utils().getCore(), maxMaterialsCount);
-		createMaterialsDescriptorSet();
-	}
-
-	static VkDescriptorSet getDescriptorSet() {
-		return descriptorSet;
-	}
-
-	static std::shared_ptr<Material> create(VulkanCore core, VkCommandPool pool, MaterialInfo info) {
-		Material mat{};
-		mat.makeResource(core, pool, info);
-		return std::make_shared<Material>(mat);
 	}
 };
 

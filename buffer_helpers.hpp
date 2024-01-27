@@ -1,26 +1,27 @@
 #pragma once
 #include "buffer.hpp"
+#include "vulkan_utils.hpp"
 
 template<class ResourceInfo>
 class DUResource {
 	//DYNAMIC UNIFORM RESOURCE
-private:
-	uint32_t index;
 public:
-	ResourceInfo resourceInfo;
+	std::shared_ptr<Buffer> resourceBuf;
 
-	inline static std::shared_ptr<Buffer> resourceBuf;
-	inline static std::shared_ptr<Buffer> stagingBuf;
-	inline static void* stagingBufMap;
-	inline static uint32_t storedResources;
-	inline static uint32_t paddedElementSize;
-	inline static uint32_t maximumResources;
+	std::shared_ptr<Buffer> stagingBuf;
+	void* stagingBufMap;
 
-	static void clear() {
+	size_t storedResources;
+	size_t maximumResources;
+
+	size_t paddedElementSize;
+
+	void clearBuffer() {
 		storedResources = 0;
 	}
 
-	static void init(VulkanCore core, uint32_t maximumResourcesValue = 100) {
+	void init(uint32_t maximumResourcesValue = 100) {
+		auto core = VulkanUtils::utils().getCore();
 		maximumResources = maximumResourcesValue;
 		paddedElementSize =
 			core->gpuProperties.limits.minUniformBufferOffsetAlignment > sizeof(ResourceInfo) ?
@@ -43,23 +44,29 @@ public:
 		stagingBufMap = stagingBuf->allocattedInfo.pMappedData;
 	}
 
-	uint32_t getResourceOffset() {
-		return DUResource<ResourceInfo>::paddedElementSize * this->index;
+	size_t getResourceOffset() {
+		return (this->storedResources - 1) * this->paddedElementSize;
 	}
 
-	void makeResource(VulkanCore core, VkCommandPool pool, ResourceInfo info) {
-		this->index = storedResources;
-		storedResources++;
-		memcpy(stagingBufMap, &info, sizeof(info));
+	size_t getResourceOffset(size_t index) {
+		assert(index < this->storedResources);
+		return index * this->paddedElementSize;
+	}
+
+	void addResource(VulkanCore core, VkCommandPool pool, ResourceInfo info) {
+		memcpy(this->stagingBufMap, &info, sizeof(info));
+
 		VkBufferCopy copier{};
 		copier.srcOffset = 0;
 		copier.size = sizeof(ResourceInfo);
-		copier.dstOffset = this->index * (paddedElementSize);
+		copier.dstOffset = this->getResourceOffset();
+
 		copyBuffer(core, pool, { BufferCopyInfo(stagingBuf->buffer, resourceBuf->buffer, copier) });
-		this->resourceInfo = info;
+
+		this->storedResources++;
 	}
 
-	static VkDescriptorSet createDescriptor(VulkanCore core, VkShaderStageFlags shaderStageFlags) {
+	VkDescriptorSet createDescriptor(VulkanCore core, VkShaderStageFlags shaderStageFlags) {
 		VkDescriptorSetLayoutBinding binding0{};
 		binding0.binding = 0;
 		binding0.descriptorCount = 1;

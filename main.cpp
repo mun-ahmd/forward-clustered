@@ -107,7 +107,7 @@ public:
 	~Application() {
 		meshes.clear();
 		meshes.shrink_to_fit();
-		Material::clear();
+		materials.clear();
 
 		for (auto& frame : frames)
 			frame.cleanup(core->device);
@@ -153,7 +153,8 @@ private:
 	VkCommandPool commandPool;
 
 	std::vector<Mesh> meshes;
-	std::vector<RC<Material>> materials;
+
+	Materials materials;
 	std::vector<uint32_t> meshMatIndices;
 	std::vector<glm::mat4> transforms;
 
@@ -179,10 +180,12 @@ private:
 		auto loadedModel = loadGLTF(gltfModelSelector.loadedModelPath.c_str()).value();
 		meshes.reserve(loadedModel.meshData.meshes.size());
 		transforms = loadedModel.meshData.transforms;
+		
+		materials.clear();
 		materials.reserve(loadedModel.meshData.meshes.size());
-		Material::clear();
+		
 
-		Material::addMaterialImage(
+		materials.addMaterialImage(
 			loadImage(
 				R"(C:\Users\munee\source\repos\VulkanRenderer\3DModels\blankVaibhav.png)",
 				4,
@@ -222,7 +225,7 @@ private:
 					}
 					imagePaths.push_back(finalPath);
 					imagePathToIndex[tex] =
-						Material::addMaterialImage(
+						materials.addMaterialImage(
 							loadImage(finalPath.c_str(), i == 0 ? 4 : 2, i == 0, resizeSize), vSampler
 						);
 				}
@@ -273,7 +276,7 @@ private:
 			std::cout << imagePaths[matInf.baseTexId_metallicRoughessTexId_waste2.x] << " ";
 			std::cout << imagePaths[matInf.baseTexId_metallicRoughessTexId_waste2.y] << std::endl;
 
-			materials.push_back(Material::create(core, commandPool, matInf));
+			materials.addMaterial(core, commandPool, matInf);
 		}
 		meshMatIndices = std::vector<uint32_t>(
 			loadedModel.meshData.matIndex.begin(),
@@ -320,8 +323,8 @@ private:
 		auto swapChainFormat = chooseSwapSurfaceFormat(swapCapabilities.formats);
 		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
 		
-		Material::init(1000);
-		materialsDescriptorSet = Material::getDescriptorSet();
+		materials.init(1000);
+		materialsDescriptorSet = materials.getDescriptorSet();
 		
 		vSampler = Sampler::create(core, Sampler::makeCreateInfo());
 
@@ -625,7 +628,7 @@ private:
 
 		offset = 0;
 		for (int i = 0; i < meshes.size(); ++i) {
-			uint32_t dynamicOffset = materials[meshMatIndices[i]]->getResourceOffset();
+			uint32_t dynamicOffset = materials.getResourceOffset(meshMatIndices[i]);
 			vkCmdBindDescriptorSets(
 				activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 				pipelineLayout, 2, 1, &materialsDescriptorSet, 1, &dynamicOffset
