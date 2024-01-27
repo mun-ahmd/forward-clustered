@@ -52,14 +52,21 @@ private:
 		descriptorSet = descriptor;
 	}
 public:
-	inline static std::vector<RC<Image>> materialImages;
+	inline static std::vector<UniqueImageView> materialImages;
 	inline static RC<Sampler> sampler;
 	inline static VkDescriptorSet descriptorSet;
 
 	static unsigned int addMaterialImage(RC<Image> vImage, RC<Sampler> vSampler) {
 		sampler = vSampler;
 		unsigned int index = materialImages.size();
-		materialImages.push_back(vImage);
+		materialImages.push_back(
+			getImageView(
+				vImage,
+				vImage->format,
+				VK_IMAGE_ASPECT_COLOR_BIT
+			)
+		);
+
 		VkWriteDescriptorSet write1{};
 		write1.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		write1.descriptorCount = 1;
@@ -70,11 +77,7 @@ public:
 
 		VkDescriptorImageInfo imageInfo{};
 		imageInfo.imageLayout = vImage->layout;
-		imageInfo.imageView = vImage->getView(
-			VulkanUtils::utils().getCore(),
-			vImage->format,
-			VK_IMAGE_ASPECT_COLOR_BIT
-		);
+		imageInfo.imageView = materialImages[index]->view;
 		imageInfo.sampler = sampler->sampler;
 		write1.pImageInfo = &imageInfo;
 		vkUpdateDescriptorSets(VulkanUtils::utils().getCore()->device, 1, &write1, 0, nullptr);

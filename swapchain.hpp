@@ -9,8 +9,10 @@ public:
 	VkFormat swapChainImageFormat;
 	VkExtent2D swapChainExtent;
 	std::vector<VkImageView> swapChainImageViews;
+
 	std::shared_ptr<Image> depthImage;
-	VkImageView depthImageView;
+	UniqueImageView depthImageView;
+	
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 	uint32_t framesInFlight = 0;
 	VulkanCore core;
@@ -28,7 +30,8 @@ public:
 		for (auto imageView : swapChainImageViews) {
 			vkDestroyImageView(core->device, imageView, nullptr);
 		}
-		vkDestroyImageView(core->device, depthImageView, nullptr);
+		depthImage.reset();
+		depthImageView.reset();
 		vkDestroySwapchainKHR(core->device, swapChain, nullptr);
 	}
 
@@ -160,7 +163,7 @@ private:
 			}
 		}
 
-		depthImageView = depthImage->getView(core, depthImage->format, VK_IMAGE_ASPECT_DEPTH_BIT);
+		depthImageView = getImageView(depthImage, depthImage->format, VK_IMAGE_ASPECT_DEPTH_BIT);
 	}
 
 	void createFramebuffers(const VkDevice& device, const VkRenderPass& renderPass) {
@@ -168,7 +171,7 @@ private:
 		for (size_t i = 0; i < swapChainImageViews.size(); i++) {
 			VkImageView attachments[2] = {
 				swapChainImageViews[i],
-				depthImageView
+				depthImageView->view
 			};
 
 			VkFramebufferCreateInfo framebufferInfo{};

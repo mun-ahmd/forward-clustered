@@ -1,9 +1,59 @@
 #pragma once
+#include <array>
+#include <optional>
 #include "vulkan_utils.hpp"
 #include "buffer.hpp"
 
+//forward declaration
+class ImageView;
+class Image;
+
+class ImageView {
+private:
+	ImageView() = default;
+
+public:
+	VkImageView view;
+	VkImageViewCreateInfo info;
+	std::shared_ptr<Image> image;
+
+	inline static int viewAllocatedCount = 0;
+	struct ImageViewDeleter {
+		void operator()(ImageView* imageView) {
+			vkDestroyImageView(
+				VulkanUtils::utils().getCore()->device,
+				imageView->view,
+				nullptr
+			);
+			viewAllocatedCount--;
+			delete imageView;
+		}
+	};
+
+	static std::unique_ptr<ImageView, ImageViewDeleter> create(
+		std::shared_ptr<Image> baseImage,
+		VkImageViewCreateInfo info
+	) {
+		ImageView imageView;
+		imageView.image = baseImage;
+		imageView.info = info;
+		if (vkCreateImageView(
+			VulkanUtils::utils().getCore()->device,
+			&info,
+			nullptr,
+			&imageView.view
+		) != VK_SUCCESS) {
+			throw std::runtime_error("Could not create image view!");
+		}
+
+		viewAllocatedCount++;
+		return std::unique_ptr<ImageView, ImageViewDeleter>(new ImageView(imageView));
+	}
+};
+
 class Image {
 public:
+
 	VkImage image;
 	VkImageLayout layout;
 	VkFormat format;
@@ -30,9 +80,16 @@ public:
 		return info;
 	}
 
-	inline static int allocattedCount = 0;
+	inline static int imageAllocattedCount = 0;
+	struct ImageDeleter {
+		void operator()(Image* img) {
+			vmaDestroyImage(VulkanUtils::utils().getCore()->allocator, img->image, img->allocation);
+			delete img;
+			imageAllocattedCount--;
+		}
+	};
 
-	static std::shared_ptr<Image> create(
+	static std::unique_ptr<Image, ImageDeleter> create(
 		VulkanCore core,
 		VkImageCreateInfo imageCreateInfo, VmaAllocationCreateFlagBits vmaFlags,
 		VkMemoryPropertyFlags requiredMemoryTypeFlags = 0, VkMemoryPropertyFlags preferredMemoryTypeFlags = 0)
@@ -55,41 +112,8 @@ public:
 			throw std::runtime_error("Could not create image resource!");
 		}
 
-		allocattedCount++;
-		return std::shared_ptr<Image>(new Image(img),
-			[core](Image* img) {
-				vmaDestroyImage(core->allocator, img->image, img->allocation);
-				delete img;
-				allocattedCount--;
-			});
-	}
-
-	VkImageView getView(VulkanCore core, VkFormat viewFormat, VkImageAspectFlags aspectFlags)
-	{
-		VkImageViewCreateInfo info = {};
-		info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		info.pNext = nullptr;
-
-		info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		info.image = image;
-		info.format = viewFormat;
-		info.subresourceRange.baseMipLevel = 0;
-		info.subresourceRange.levelCount = 1;
-		info.subresourceRange.baseArrayLayer = 0;
-		info.subresourceRange.layerCount = 1;
-		info.subresourceRange.aspectMask = aspectFlags;
-
-		return getView(core, info);
-	}
-
-	VkImageView getView(VulkanCore core, VkImageViewCreateInfo info)
-	{
-		VkImageView view;
-		if (vkCreateImageView(core->device, &info, nullptr, &view) != VK_SUCCESS) {
-			throw std::runtime_error("Could not create image view!");
-		}
-		//have to destroy views yourself
-		return view;
+		imageAllocattedCount++;
+		return std::unique_ptr<Image, ImageDeleter>(new Image(img));
 	}
 
 	void transitionImageLayout(VkImageLayout newLayout) {
@@ -157,6 +181,37 @@ public:
 
 };
 
+inline std::unique_ptr<ImageView, ImageView::ImageViewDeleter> getImageView(
+	std::shared_ptr<Image> image,
+	VkImageViewCreateInfo info
+) {
+	//Image must be converted to a shared pointer due to views sharing ownership of the image
+	//Image wont be deleted until the view is deleted
+	return ImageView::create(image, info);
+}
+
+inline std::unique_ptr<ImageView, ImageView::ImageViewDeleter> getImageView(
+	std::shared_ptr<Image> image,
+	VkFormat viewFormat,
+	VkImageAspectFlags aspectFlags
+)
+{
+	VkImageViewCreateInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	info.pNext = nullptr;
+
+	info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	info.image = image->image;
+	info.format = viewFormat;
+	info.subresourceRange.baseMipLevel = 0;
+	info.subresourceRange.levelCount = 1;
+	info.subresourceRange.baseArrayLayer = 0;
+	info.subresourceRange.layerCount = 1;
+	info.subresourceRange.aspectMask = aspectFlags;
+
+	return getImageView(image, info);
+}
+
 class Sampler {
 public:
 	VkSampler sampler;
@@ -204,8 +259,16 @@ public:
 		return ci;
 	}
 
-	inline static int allocattedCount = 0;
-	static std::shared_ptr<Sampler> create(
+	inline static int samplerAllocattedCount = 0;
+	struct SamplerDeleter {
+		void operator()(Sampler* sampler) {
+			vkDestroySampler(VulkanUtils::utils().getCore()->device, sampler->sampler, nullptr);
+			delete sampler;
+			samplerAllocattedCount--;
+		}
+	};
+
+	static std::unique_ptr<Sampler, SamplerDeleter> create(
 		VulkanCore core,
 		VkSamplerCreateInfo info
 	) {
@@ -214,12 +277,11 @@ public:
 			throw std::runtime_error("Failed to create Sampler!");
 		}
 
-		allocattedCount++;
-		return std::shared_ptr<Sampler>(new Sampler(sampler),
-			[core](Sampler* sampler) {
-				vkDestroySampler(core->device, sampler->sampler, nullptr);
-				delete sampler;
-				allocattedCount--;
-			});
+		samplerAllocattedCount++;
+		return std::unique_ptr<Sampler, SamplerDeleter>(new Sampler(sampler));
 	}
 };
+
+using UniqueImage = std::unique_ptr<Image, Image::ImageDeleter>;
+using UniqueImageView = std::unique_ptr<ImageView, ImageView::ImageViewDeleter>;
+using UniqueSampler = std::unique_ptr<Sampler, Sampler::SamplerDeleter>;

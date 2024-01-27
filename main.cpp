@@ -107,6 +107,7 @@ public:
 	~Application() {
 		meshes.clear();
 		meshes.shrink_to_fit();
+		Material::clear();
 
 		for (auto& frame : frames)
 			frame.cleanup(core->device);
@@ -179,9 +180,6 @@ private:
 		meshes.reserve(loadedModel.meshData.meshes.size());
 		transforms = loadedModel.meshData.transforms;
 		materials.reserve(loadedModel.meshData.meshes.size());
-
-		std::vector<RC<Image>> images;
-
 		Material::clear();
 
 		Material::addMaterialImage(
@@ -809,7 +807,7 @@ private:
 
 		auto stagingBuf = prepareStagingBuffer(core, imageData->getData(), imageData->getSizeInBytes());
 
-		imageData.release();
+		imageData.reset();
 
 		vImage = Image::create(
 			core,
