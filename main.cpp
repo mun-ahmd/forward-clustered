@@ -184,14 +184,14 @@ private:
 
 		Material::addMaterialImage(
 			loadImage(
-				R"(C:\Users\munee\source\repos\VulkanStartingOut\3DModels\purple_vaibhav.png)",
+				R"(C:\Users\munee\source\repos\VulkanRenderer\3DModels\blankVaibhav.png)",
 				4,
 				true
 			), vSampler
 		);
-
+																			
 		std::unordered_map<std::string, unsigned int> imagePathToIndex;
-		std::vector<std::string> imagePaths = { R"(C:\Users\munee\source\repos\VulkanStartingOut\3DModels\blankVaibhav.png)" };
+		std::vector<std::string> imagePaths = { R"(C:\Users\munee\source\repos\VulkanRenderer\3DModels\blankVaibhav.png)" };
 		//empty path means default 0 texture
 		imagePathToIndex[""] = 0;
 		for (auto& mat : loadedModel.materials) {
