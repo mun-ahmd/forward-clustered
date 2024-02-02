@@ -7,6 +7,8 @@
 #include <optional>
 #include <functional>
 
+#define NO_TEXTURES
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -21,14 +23,15 @@
 #include "MeshLoader.hpp"
 #include "ImageLoader.hpp"
 #include "cameraObj.h"
-#include "resources.hpp"
+#include "material.hpp"
+#include "light.hpp"
 #include "imgui_helper.hpp"
 #include <filesystem>
 #include "swapchain.hpp"
 #include "mesh.hpp"
 #include "frame.hpp"
+#include "skybox.hpp"
 
-constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 constexpr int lightCount = 10;
 
 struct MeshPushConstants {
@@ -80,7 +83,6 @@ struct FrameData {
 	RC<Buffer> globalDescBuffer;
 	VkDescriptorSet globalDS;
 
-	PointLightsBuffer pointLights;
 	VkDescriptorSet pointLightsDS;
 
 	//IAResource<NullResourceInfo, AABB> clustersBuffer;
@@ -159,6 +161,8 @@ private:
 	std::vector<glm::mat4> transforms;
 
 	std::vector<PointLightInfo> pointLights;
+	LightsBuffer lightsBuffer;
+
 	VkDescriptorSet materialsDescriptorSet;
 
 	//RC<Buffer> buffer;
@@ -169,9 +173,9 @@ private:
 	float nearPlane = 0.1f;
 	float farPlane = 200.f;
 
-	void initMeshesMaterials() {
-		camera = CamHandler(core->window);
+	uint32_t numFramesInFlight = MAX_FRAMES_IN_FLIGHT;
 
+	void initMeshesMaterialsLights() {
 		meshes.clear();
 		transforms.clear();
 		meshMatIndices.clear();
@@ -197,6 +201,7 @@ private:
 		std::vector<std::string> imagePaths = { R"(C:\Users\munee\source\repos\VulkanRenderer\3DModels\blankVaibhav.png)" };
 		//empty path means default 0 texture
 		imagePathToIndex[""] = 0;
+#ifndef NO_TEXTURES
 		for (auto& mat : loadedModel.materials) {
 			const char* textures[2];
 			if (mat.isMetallicRoughness) {
@@ -226,16 +231,30 @@ private:
 					imagePaths.push_back(finalPath);
 					imagePathToIndex[tex] =
 						materials.addMaterialImage(
-							loadImage(finalPath.c_str(), i == 0 ? 4 : 2, i == 0, resizeSize), vSampler
+							loadImage(
+								finalPath.c_str(),
+								i == 0 ? 4 : 2,
+								false,
+								resizeSize
+							), vSampler
 						);
 				}
-				std::cout << std::endl << std::endl;
+				//std::cout << std::endl << std::endl;
 			}
 		}
+#endif
 		
 		for (auto& matIndex : loadedModel.meshData.matIndex) {
 			MaterialInfo matInf{};
 			MaterialPBR loadedMat = loadedModel.materials[matIndex];
+#ifndef NO_TEXTURES
+			loadedMat.metallicRoughness.baseColorTex = "";
+			loadedMat.metallicRoughness.metallicRoughnessTex = "";
+			loadedMat.diffuseSpecular.diffuseTex = "";
+			loadedMat.diffuseSpecular.specularGlossTex = "";
+
+#endif
+
 			matInf.baseColorFactor = loadedMat.isMetallicRoughness ?
 				loadedMat.metallicRoughness.baseColorFactor :
 				loadedMat.diffuseSpecular.diffuseFactor;
@@ -272,9 +291,9 @@ private:
 					),
 					0, 0
 				);
-			std::cout << std::endl << "Material: " << matIndex;
-			std::cout << imagePaths[matInf.baseTexId_metallicRoughessTexId_waste2.x] << " ";
-			std::cout << imagePaths[matInf.baseTexId_metallicRoughessTexId_waste2.y] << std::endl;
+			//std::cout << std::endl << "Material: " << matIndex;
+			//std::cout << imagePaths[matInf.baseTexId_metallicRoughessTexId_waste2.x] << " ";
+			//std::cout << imagePaths[matInf.baseTexId_metallicRoughessTexId_waste2.y] << std::endl;
 
 			materials.addMaterial(core, commandPool, matInf);
 		}
@@ -284,41 +303,44 @@ private:
 		);
 		for (size_t i = 0; i < loadedModel.meshData.meshes.size(); ++i)
 			meshes.push_back(Mesh(core, commandPool, loadedModel.meshData.meshes[i]));
-	}
 
-	void initLights() {
-		this->pointLights.resize(lightCount);
+		this->pointLights = std::move(loadedModel.pointLights);
+		for (int i = 0; i < frames.size(); i++) {
+			auto& frame = frames[i];
+			
+			this->lightsBuffer.setSunLight(loadedModel.directionalLight, i);
 
-		for (auto& light : pointLights) {
-			auto rm = randomMaterial();
-			light.position = glm::normalize(glm::vec3(rm.baseColorFactor));
-			light.radius = 1.0f;
-			light.color = rm.baseColorFactor;
-		}
-
-		for (auto& frame : this->frames) {
-			frame.data.pointLights.addLights(core, commandPool, this->pointLights.data(), this->pointLights.size());
+			this->lightsBuffer.addPointLights(
+				core, commandPool,
+				this->pointLights.data(), this->pointLights.size()
+			);
 		}
 	}
 
 	RC<Image> vImage;
 	RC<Sampler> vSampler;
 
+	SkyboxRenderer skyboxR;
+
 	void initVulkan() {
 		core = VulkanUtils::utils().getCore();
 
 		commandPool = VulkanUtils::utils().getCommandPool();
 
+		this->lightsBuffer = LightsBuffer(core, 1000, numFramesInFlight);
+
 		int i = 0;
 		for (auto& frame : frames) {
+			this->current_frame = i;
 			frame = Frame(
 				core, commandPool,
 				std::bind(&Application::frameInitializer, this, std::placeholders::_1),
 				std::bind(&Application::frameDestructor, this, std::placeholders::_1)
 			);
-
 			i++;
 		}
+		this->current_frame = 0;
+
 		auto swapCapabilities = core->querySwapChainSupport();
 		auto swapChainFormat = chooseSwapSurfaceFormat(swapCapabilities.formats);
 		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
@@ -326,25 +348,42 @@ private:
 		materials.init(1000);
 		materialsDescriptorSet = materials.getDescriptorSet();
 		
-		vSampler = Sampler::create(core, Sampler::makeCreateInfo());
+		vSampler = Sampler::create(core, Sampler::makeCreateInfo(
+			{ VK_FILTER_LINEAR, VK_FILTER_LINEAR },
+			{VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT, VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT },
+			{},
+			VK_SAMPLER_MIPMAP_MODE_LINEAR,
+			core->gpuProperties.limits.maxSamplerAnisotropy
+		));
 
-		initLights();
 		createRenderPass(swapChainFormat.format);
 		createGraphicsPipeline();
 		createDepthPrePassPipeline();
 		createClusterComputePipeline();
 		swapChain = SwapChain(core, swapChainFormat, swapPresentMode, chooseSwapExtent(swapCapabilities.capabilities), renderPass);
-		initMeshesMaterials();
+		
+		camera = CamHandler(core->window);
+		if (Store::itemInStore("cameraMovementSpeed")) {
+			auto loadedBytes = Store::fetchBytes("cameraMovementSpeed");
+			float loadedMovementSpeed = camera.movementSpeed();
+			memcpy(&loadedMovementSpeed, loadedBytes.get(), sizeof(loadedMovementSpeed));
+			camera.movementSpeed() = loadedMovementSpeed;
+		}
+
+		initMeshesMaterialsLights();
 		imgui.init(core, this->renderPass, this->frames[0].commandBuffer, 1);
-
+		
+		skyboxR.initialize(renderPass, 1);
 	}
-
+	 
 
 	bool hasModelChanged = false;
+	bool rebuildShadingPipe = false;
+
 	globalDescriptor gDescValue{};
 
 	void frameInitializer(FrameData* frame) {
-		frame->globalDescBuffer = Buffer::create(core, sizeof(globalDescriptor), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, (VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT), 0);
+		frame->globalDescBuffer = Buffer::create(core, sizeof(globalDescriptor), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, (VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT), 0);
 		frame->globalDescBufferMappedPointer = frame->globalDescBuffer->allocation->GetMappedData();
 
 		{
@@ -371,8 +410,11 @@ private:
 			vkUpdateDescriptorSets(core->device, 1, &write, 0, nullptr);
 		}
 
-		frame->pointLights.init(core);
-		frame->pointLightsDS = frame->pointLights.createDescriptor(core, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+		frame->pointLightsDS = this->lightsBuffer.createDescriptorSet(
+			current_frame,
+			core,
+			VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT
+		);
 
 		glm::uvec3 clusterSize = glm::uvec3(32, 32, 4);
 		//frame->clustersBuffer.init(core, sizeof(AABB) * clusterSize.x * clusterSize.y * clusterSize.z);
@@ -382,7 +424,9 @@ private:
 		frame->clusterLightsBuffer = Buffer::create(core, clusterSize.x * clusterSize.y * clusterSize.z * sizeof(ClusterLights),
 			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 			VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
-			0);
+			0
+		);
+
 		{
 			VkDescriptorSetLayoutBinding binding{};
 			binding.descriptorCount = 1;
@@ -490,19 +534,34 @@ private:
 		std::vector<VkPipelineStageFlags>& waitPipelineStageFlags) {
 		//perform no cpu<->gpu transfers here
 		this->imgui.newFrame();
-		gltfModelSelector.render([this]() { hasModelChanged = true; });
 
-		ImGui::Begin("Camera settings");
-		if (ImGui::SliderFloat("movement speed", &camera.movementSpeed(), 0.1, 10.0)) {}
-		float camF3[3] = { camera.get_pos().x, camera.get_pos().y, camera.get_pos().z };
-		if (ImGui::InputFloat3("position", camF3)) {
-			camera.set_pos(glm::make_vec3(camF3));
-		}
-		float camViewF3[3] = { camera.get_front().x, camera.get_front().y, camera.get_front().z };
-		if (ImGui::InputFloat3("camera direction", camViewF3)) {
-			glm::vec3 newFront = glm::normalize(glm::make_vec3(camViewF3));
-			if (glm::all(glm::equal(newFront, glm::vec3(0.0, 0.0, 0.0))));
-			camera.set_front(newFront);
+		ImGui::Begin("UI");
+		{
+			if(ImGui::CollapsingHeader("Model Selection Menu"))
+			{
+				gltfModelSelector.render([this]() { hasModelChanged = true; });
+			}
+
+			if (ImGui::CollapsingHeader("Camera settings"))
+			{
+				if (ImGui::SliderFloat("movement speed", &camera.movementSpeed(), 0.1, 10.0)) {
+					Store::storeBytes("cameraMovementSpeed", (char*)&camera.movementSpeed(), sizeof(camera.movementSpeed()));
+				}
+				float camF3[3] = { camera.get_pos().x, camera.get_pos().y, camera.get_pos().z };
+				if (ImGui::InputFloat3("position", camF3)) {
+					camera.set_pos(glm::make_vec3(camF3));
+				}
+				float camViewF3[3] = { camera.get_front().x, camera.get_front().y, camera.get_front().z };
+				if (ImGui::InputFloat3("camera direction", camViewF3)) {
+					glm::vec3 newFront = glm::normalize(glm::make_vec3(camViewF3));
+					if (glm::all(glm::equal(newFront, glm::vec3(0.0, 0.0, 0.0))));
+					camera.set_front(newFront);
+				}
+			}
+
+			if (ImGui::Button("Rebuild Shading Pipeline")) {
+				this->rebuildShadingPipe = true;
+			}
 		}
 		ImGui::End();
 
@@ -601,7 +660,7 @@ private:
 			vkCmdPushConstants(activeFrame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
 
 			vkCmdBindVertexBuffers(activeFrame.commandBuffer, 0, 1, &meshes[i].vertexBuffer->buffer, &offset);
-			vkCmdBindIndexBuffer(activeFrame.commandBuffer, meshes[i].indexBuffer->buffer, 0, VK_INDEX_TYPE_UINT16);
+			vkCmdBindIndexBuffer(activeFrame.commandBuffer, meshes[i].indexBuffer->buffer, 0, meshes[i].indexType);
 			vkCmdDrawIndexed(activeFrame.commandBuffer, meshes[i].numIndices, 1, 0, 0, 0);
 		}
 
@@ -638,10 +697,20 @@ private:
 			vkCmdPushConstants(activeFrame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
 
 			vkCmdBindVertexBuffers(activeFrame.commandBuffer, 0, 1, &meshes[i].vertexBuffer->buffer, &offset);
-			vkCmdBindIndexBuffer(activeFrame.commandBuffer, meshes[i].indexBuffer->buffer, 0, VK_INDEX_TYPE_UINT16);
+			vkCmdBindIndexBuffer(activeFrame.commandBuffer, meshes[i].indexBuffer->buffer, 0, meshes[i].indexType);
 			vkCmdDrawIndexed(activeFrame.commandBuffer, meshes[i].numIndices, 1, 0, 0, 0);
 		}
-		uint32_t dynamicOffset = 0;
+
+		skyboxR.beginRender(activeFrame.commandBuffer, viewport, scissor);
+		SkyboxRenderer::CubemapPushConstants cpushConst{};
+		cpushConst.inverseProjView = glm::inverse(glm::mat4(glm::mat3(gDescValue.view))) * glm::inverse(gDescValue.proj);
+		//cpushConst.inverseProjView = gDescValue.proj * glm::mat4(glm::mat3(gDescValue.view));
+
+		skyboxR.endRender(
+			activeFrame.commandBuffer,
+			this->current_frame, //MAJOR todo change to actual frame index
+			cpushConst
+		);
 
 		imgui.drawWithinRenderPass(activeFrame.commandBuffer);
 
@@ -716,11 +785,29 @@ private:
 
 					auto start = std::chrono::high_resolution_clock::now();
 					// Reload the models
-					this->initMeshesMaterials();
+					this->initMeshesMaterialsLights();
 					auto end = std::chrono::high_resolution_clock::now();
 					auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 					std::cout << "Loading new model took: " << duration.count() << " ms" << std::endl;
 					hasModelChanged = false;
+				}
+
+				if (rebuildShadingPipe) {
+					vkDeviceWaitIdle(core->device);
+
+					auto start = std::chrono::high_resolution_clock::now();
+					
+					{
+						vkDestroyPipelineLayout(core->device, this->pipelineLayout, nullptr);
+						vkDestroyPipeline(core->device, this->graphicsPipeline, nullptr);
+					}
+					this->createGraphicsPipeline();
+
+					auto end = std::chrono::high_resolution_clock::now();
+					auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+					std::cout << "Rebuilding took: " << duration.count() << " ms" << std::endl;
+
+					rebuildShadingPipe = false;
 				}
 
 				double deltaTime = glfwGetTime() - startTime;
@@ -773,7 +860,7 @@ private:
 			desiredChannels
 		);
 
-		std::cout << "Image: " << filepath << " was " << imageData->getWidth() << "x" << imageData->getHeight() << " pixels" << std::endl;
+		//std::cout << "Image: " << filepath << " was " << imageData->getWidth() << "x" << imageData->getHeight() << " pixels" << std::endl;
 
 		if (
 			desiredResolution.has_value() &&
@@ -806,8 +893,9 @@ private:
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 			VkExtent3D{ (unsigned int)imageData->getWidth(), (unsigned int)imageData->getHeight(), 1 }
 		);
-		iCreateInf.mipLevels = 1;
+		//iCreateInf.mipLevels = Image::getMipLevelsForFull(iCreateInf.extent);
 
+		//todo major allocate for mips too
 		auto stagingBuf = prepareStagingBuffer(core, imageData->getData(), imageData->getSizeInBytes());
 
 		imageData.reset();

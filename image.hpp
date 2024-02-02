@@ -4,6 +4,8 @@
 #include "vulkan_utils.hpp"
 #include "buffer.hpp"
 
+//todo MAJOR write a generate mip maps function
+
 //forward declaration
 class ImageView;
 class Image;
@@ -58,27 +60,10 @@ public:
 	VkImageLayout layout;
 	VkFormat format;
 	VkExtent3D extent;
+	uint32_t mipLevels;
+	uint32_t arrayLayers;
+
 	VmaAllocation allocation;
-
-	static VkImageCreateInfo makeCreateInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent)
-	{
-		VkImageCreateInfo info = { };
-		info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-		info.pNext = nullptr;
-
-		info.imageType = VK_IMAGE_TYPE_2D;
-
-		info.format = format;
-		info.extent = extent;
-
-		info.mipLevels = 1;
-		info.arrayLayers = 1;
-		info.samples = VK_SAMPLE_COUNT_1_BIT;
-		info.tiling = VK_IMAGE_TILING_OPTIMAL;
-		info.usage = usageFlags;
-
-		return info;
-	}
 
 	inline static int imageAllocattedCount = 0;
 	struct ImageDeleter {
@@ -104,6 +89,9 @@ public:
 		img.layout = imageCreateInfo.initialLayout;
 		img.format = imageCreateInfo.format;
 		img.extent = imageCreateInfo.extent;
+		img.mipLevels = imageCreateInfo.mipLevels;
+		img.arrayLayers = imageCreateInfo.arrayLayers;
+
 		VmaAllocationInfo allocationInfo;
 		if (
 			vmaCreateImage(core->allocator, &imageCreateInfo, &allocationCreateInfo, &img.image, &img.allocation, &allocationInfo)
@@ -178,7 +166,36 @@ public:
 		vku.getCore()->endSingleTimeCommands(vku.getCommandPool(), commandBuffer);
 	}
 
+	static uint32_t getMipLevelsForFull(VkExtent3D extent) {
+		// returns number of mip levels required for full coverage
+		return 1 + std::floor(
+			std::log2(
+				std::max(
+					{ extent.width, extent.height, extent.depth }
+				)
+			)
+		);
+	}
 
+	static VkImageCreateInfo makeCreateInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent)
+	{
+		VkImageCreateInfo info = { };
+		info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		info.pNext = nullptr;
+
+		info.imageType = VK_IMAGE_TYPE_2D;
+
+		info.format = format;
+		info.extent = extent;
+
+		info.mipLevels = 1;
+		info.arrayLayers = 1;
+		info.samples = VK_SAMPLE_COUNT_1_BIT;
+		info.tiling = VK_IMAGE_TILING_OPTIMAL;
+		info.usage = usageFlags;
+
+		return info;
+	}
 };
 
 inline std::unique_ptr<ImageView, ImageView::ImageViewDeleter> getImageView(

@@ -87,6 +87,7 @@ private:
 		vkGetPhysicalDeviceFeatures2(device, &deviceFeatures);
 
 		if (
+				deviceFeatures.features.samplerAnisotropy &&
 				indexingFeatures.descriptorBindingPartiallyBound &&
 				indexingFeatures.runtimeDescriptorArray &&
 				indexingFeatures.shaderSampledImageArrayNonUniformIndexing
@@ -171,6 +172,7 @@ private:
 		}
 
 		VkPhysicalDeviceFeatures deviceFeatures{};
+		deviceFeatures.samplerAnisotropy = VK_TRUE;
 
 		VkPhysicalDeviceDescriptorIndexingFeatures indexingFeatures{};
 		indexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
@@ -625,7 +627,7 @@ public:
 	}
 
 	VkDescriptorSet createDescriptorSet(
-		std::vector<VkDescriptorSetLayoutBinding>&& bindings,
+		std::vector<VkDescriptorSetLayoutBinding> bindings,
 		VkDescriptorSetLayoutCreateFlags flags = 0,
 		const void* pNext = nullptr
 	) {
