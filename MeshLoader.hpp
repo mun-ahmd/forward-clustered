@@ -48,6 +48,20 @@ struct MaterialPBR {
 	float normalScale = 1.0;
 };
 
+struct PointLightInfo {
+	glm::vec3 color;
+	float intensity;
+	glm::vec3 position;
+	float radius;
+};
+
+struct DirectionalLightInfo {
+	glm::vec3 color;
+	float intensity;
+	glm::vec3 direction;
+	float waste;
+};
+
 struct ModelData {
 	struct {
 		//all of same length
@@ -56,6 +70,8 @@ struct ModelData {
 		std::vector<int> matIndex;
 	} meshData;
 	std::vector<MaterialPBR> materials;
+	std::vector<PointLightInfo> pointLights;
+	DirectionalLightInfo directionalLight;
 };
 
 std::optional<ModelData> loadGLTF(const char* filepath);

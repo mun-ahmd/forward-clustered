@@ -16,6 +16,7 @@
 #include "glm/gtc/quaternion.hpp"
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
 
 #include "MeshLoader.hpp"
 
@@ -96,9 +97,13 @@ inline AccessorInfo loadAccessor(ModelInterface& model, cgltf_accessor* accessor
 	};
 }
 
-glm::vec3 coordinateSystemCorrection(glm::vec3 vec) {
+inline glm::vec3 coordinateSystemCorrection(glm::vec3 vec) {
 	return glm::vec3(vec.x, -vec.y, vec.z);
 }
+inline glm::vec2 coordinateSystemCorrection(glm::vec2 vec) {
+	return glm::vec2(vec.x, -vec.y);
+}
+
 
 std::vector<std::vector<std::pair<MeshData<Vertex3>, int>>> loadMeshes(ModelInterface& model) {
 	std::vector<std::vector<std::pair<MeshData<Vertex3>, int>>> meshes;
@@ -111,9 +116,14 @@ std::vector<std::vector<std::pair<MeshData<Vertex3>, int>>> loadMeshes(ModelInte
 		cgltf_attribute_type_normal,
 		cgltf_attribute_type_texcoord
 	};
-	std::array<AccessorInfo, 3> accessorsInfo;
 
-	std::vector<AccessorInfo> preloadedAccessorInfo(model.accessors.size());
+	std::array<cgltf_type, 3> requiredAttributeVectorType = {
+		cgltf_type_vec3,
+		cgltf_type_vec3,
+		cgltf_type_vec2
+	};
+
+	std::array<AccessorInfo, 3> accessorsInfo;
 
 	for (auto& mesh : model.meshes) {
 		meshes.push_back({});
@@ -146,6 +156,9 @@ std::vector<std::vector<std::pair<MeshData<Vertex3>, int>>> loadMeshes(ModelInte
 						throw std::runtime_error("Primitive accessor component type not supported");
 							//! panic
 					}
+					if (accessorsInfo[i].accessor.type != requiredAttributeVectorType[i]) {
+						throw std::runtime_error("Primitive accessor type not supported");
+					}
 			}
 
 			unsigned char* position = accessorsInfo[0].data +
@@ -173,47 +186,73 @@ std::vector<std::vector<std::pair<MeshData<Vertex3>, int>>> loadMeshes(ModelInte
 			for (int i = 0; i < accessorsInfo.front().accessor.count; ++i) {
 				Vertex3 curr;
 				memcpy(&curr.pos, position, sizeof(glm::vec3));
-				curr.pos = coordinateSystemCorrection(curr.pos);
 				position += position_stride;
 				memcpy(&curr.norm, normal, sizeof(glm::vec3));
 				normal += normal_stride;
 				memcpy(&curr.uv, uv, sizeof(glm::vec2));
 				uv += uv_stride;
+
+				curr.pos = coordinateSystemCorrection(curr.pos);
+				curr.norm = coordinateSystemCorrection(curr.norm);
+				curr.uv = coordinateSystemCorrection(curr.uv);
+
 				data.vertices.push_back(curr);
 			}
+
 			auto indicesAccessorInfo = loadAccessor(model, primitive.indices);
 
 			if (indicesAccessorInfo.accessor.component_type == cgltf_component_type_r_8u) {
-				auto bufferIterator = (
-					reinterpret_cast<unsigned char*>(indicesAccessorInfo.buffer.data)
-					+ indicesAccessorInfo.accessor.offset
-					+ indicesAccessorInfo.bufferView.offset
-				);
-				data.indices = std::vector<unsigned int>(
-					bufferIterator,
-					bufferIterator + indicesAccessorInfo.accessor.count);
+
+				uint32_t indicesStride = indicesAccessorInfo.accessor.buffer_view->stride == 0 ?
+					indicesAccessorInfo.accessor.stride : indicesAccessorInfo.accessor.buffer_view->stride;
+
+				unsigned char* dataPtr = (
+					indicesAccessorInfo.data + indicesAccessorInfo.bufferView.offset + indicesAccessorInfo.accessor.offset
+					);
+
+				data.indices = std::vector<unsigned int>(indicesAccessorInfo.accessor.count);
+				for (unsigned int i = 0; i < indicesAccessorInfo.accessor.count; i++) {
+					unsigned int curr = *dataPtr;
+					data.indices[i] = curr;
+					dataPtr += indicesStride;
+				}
 			}
 			else if (indicesAccessorInfo.accessor.component_type == cgltf_component_type_r_16u) {
-				unsigned short* buffer = reinterpret_cast<unsigned short*>(
-						(reinterpret_cast<unsigned char*>(indicesAccessorInfo.buffer.data)
-						+ indicesAccessorInfo.accessor.offset
-						+ indicesAccessorInfo.bufferView.offset)
+				uint32_t indicesStride = indicesAccessorInfo.accessor.buffer_view->stride == 0 ?
+					indicesAccessorInfo.accessor.stride : indicesAccessorInfo.accessor.buffer_view->stride;
+
+				unsigned char* dataPtr = (
+					indicesAccessorInfo.data + indicesAccessorInfo.bufferView.offset + indicesAccessorInfo.accessor.offset
 					);
-				data.indices = std::vector<unsigned int>(
-					buffer, buffer + indicesAccessorInfo.accessor.count);
+
+				data.indices = std::vector<unsigned int>(indicesAccessorInfo.accessor.count);
+				for (unsigned int i = 0; i < indicesAccessorInfo.accessor.count; i++) {
+					unsigned int curr;
+					memcpy(&curr, dataPtr, sizeof(uint16_t));
+					data.indices[i] = curr;
+					dataPtr += indicesStride;
+				}
 			}
 			else if (indicesAccessorInfo.accessor.component_type == cgltf_component_type_r_32u) {
-				unsigned int* buffer = reinterpret_cast<unsigned int*>(
-					(reinterpret_cast<unsigned char*>(indicesAccessorInfo.buffer.data)
-						+ indicesAccessorInfo.accessor.offset
-						+ indicesAccessorInfo.bufferView.offset)
+				uint32_t indicesStride = indicesAccessorInfo.accessor.buffer_view->stride == 0 ?
+					indicesAccessorInfo.accessor.stride : indicesAccessorInfo.accessor.buffer_view->stride;
+
+				unsigned char* dataPtr = (
+					indicesAccessorInfo.data + indicesAccessorInfo.bufferView.offset + indicesAccessorInfo.accessor.offset
 					);
-				data.indices = std::vector<unsigned int>(
-					buffer, buffer + indicesAccessorInfo.accessor.count);
+
+				data.indices = std::vector<unsigned int>(indicesAccessorInfo.accessor.count);
+				for (unsigned int i = 0; i < indicesAccessorInfo.accessor.count; i++) {
+					unsigned int curr;
+					memcpy(&curr, dataPtr, sizeof(uint32_t));
+					data.indices[i] = curr;
+					dataPtr += indicesStride;
+				}
 			}
 			else {
 				// invalid component type for indices !panic
 			}
+
 			meshes.back().push_back(
 				std::make_pair(
 					std::move(data),
@@ -234,6 +273,15 @@ inline std::string texturePathHelper(std::string& gltfFilePath, std::string texP
 
 inline bool hasTexture(cgltf_texture_view& view) {
 	return view.texture != NULL;
+}
+
+PointLightInfo getLightInfo(glm::vec3 position, cgltf_light& light) {
+	PointLightInfo info{};
+	info.color = glm::make_vec3(light.color);
+	info.intensity = light.intensity;
+	info.position = position;
+	info.radius = light.range;
+	return info;
 }
 
 std::vector<MaterialPBR> loadMaterials(std::string mPath, ModelInterface& model) {
@@ -282,34 +330,73 @@ std::vector<MaterialPBR> loadMaterials(std::string mPath, ModelInterface& model)
 	return materials;
 }
 
+
+inline glm::vec3 getNodeTranslation(cgltf_node* node) {
+	//returns local translation of a node
+	// vec3(0) if not available
+	return node->has_translation ? coordinateSystemCorrection(glm::make_vec3(node->translation)) : glm::vec3(0);
+}
+
+inline glm::vec3 getNodeScale(cgltf_node* node) {
+	//returns local scale of a node
+	// vec3(1) if not available
+	return node->has_scale ? glm::make_vec3(node->scale) : glm::vec3(1);
+}
+
+inline glm::quat getNodeRotation(cgltf_node* node) {
+	//returns local rotation of a node
+
+	return node->has_rotation ?
+		glm::quat(
+			-node->rotation[3],
+			node->rotation[0], -node->rotation[1], node->rotation[2]
+		) :
+		glm::quat();
+}
+
 glm::mat4 getNodeLocalTransform(cgltf_node* node) {
 	//returns local transformation of a node
 	glm::mat4 localTransform;
 	if (node->has_matrix) {
-		//throw std::runtime_error("it had matrix your honor");
+		//todo still havent figured out how to convert matrix
+		throw std::runtime_error("it had matrix your honor");
 		localTransform = glm::make_mat4x4(node->matrix);
+		//glm::vec3 translation, scale, skew;
+		//glm::vec4 perspective;
+		//glm::quat rotation;
+		//glm::decompose(localTransform, scale, rotation, translation, skew, perspective);
+		//
+		//translation = coordinateSystemCorrection(translation);
+		//rotation.w -= rotation.w;
+		//rotation.y -= rotation.y;
+
+		//localTransform = (
+		//	glm::translate(
+		//		glm::mat4(1.f),
+		//		translation
+		//	)
+		//	* glm::mat4(rotation)
+		//	* glm::scale(
+		//		glm::mat4(1.f),
+		//		scale
+		//	)
+		//	);
 	}
 	else {
 		localTransform = glm::mat4(1.0f);
 		if (node->has_translation) {
-			glm::vec3 translation = coordinateSystemCorrection(glm::make_vec3(node->translation));
+			glm::vec3 translation = getNodeTranslation(node);
 			localTransform = glm::translate(localTransform, translation);
 		}
 		if (node->has_rotation) {
-			glm::quat q = glm::quat(
-				-node->rotation[3],
-				node->rotation[0], -node->rotation[1], node->rotation[2]
-			);
+			glm::quat q = getNodeRotation(node);
 			localTransform *= glm::mat4(q);
 		}
 		if (node->has_scale) {
-			glm::vec3 scale = glm::vec3(node->scale[0], node->scale[1], node->scale[2]);
-			localTransform = glm::scale(localTransform, scale);
+			glm::vec3 scale = getNodeScale(node);
+			localTransform *= glm::scale(glm::mat4(1.f), scale);
 		}
 		//TRS order
-		//write local transform to node for caching
-		memcpy(node->matrix, &localTransform, sizeof(localTransform));
-		node->has_matrix = 1;
 	}
 	return localTransform;
 }
@@ -326,6 +413,39 @@ glm::mat4 getNodeGlobalTransform(cgltf_node* node) {
 	}
 	return globalTransform;
 }
+
+glm::vec3 getNodeGlobalTranslation(cgltf_node* node) {
+	//returns global translation of a node
+	glm::vec3 globalTranslation = getNodeTranslation(node);
+	cgltf_node* curr = node->parent;
+	while (curr != NULL) {
+		globalTranslation += getNodeTranslation(curr);
+		curr = curr->parent;
+	}
+	return globalTranslation;
+}
+
+glm::vec3 getNodeGlobalScale(cgltf_node* node) {
+	//returns global scale of a node
+	glm::vec3 globalScale = getNodeScale(node);
+	cgltf_node* curr = node->parent;
+	while (curr != NULL) {
+		globalScale *= getNodeScale(curr);
+		curr = curr->parent;
+	}
+	return globalScale;
+}
+
+glm::quat getNodeGlobalRotation(cgltf_node* node) {
+	glm::quat globalRot = getNodeRotation(node);
+	cgltf_node* curr = node->parent;
+	while (curr != NULL) {
+		globalRot = getNodeRotation(curr) * globalRot;
+		curr = curr->parent;
+	}
+	return globalRot;
+}
+
 
 std::optional<ModelData> loadGLTF(const char* filepath) {
 	cgltf_options options{};
@@ -353,11 +473,39 @@ std::optional<ModelData> loadGLTF(const char* filepath) {
 	modelData.meshData.meshes.reserve(loadedMeshes.size());
 	modelData.meshData.transforms.reserve(loadedMeshes.size());
 	modelData.meshData.matIndex.reserve(loadedMeshes.size());
+	modelData.pointLights.reserve(model.lights.size());
 
-	for (auto& node : model.nodes) {		
-		if (node.mesh != nullptr && addedMeshes.find(node.mesh) == addedMeshes.end()) {
+	
+	
+	std::vector<cgltf_node*> nodesQueue;
+	nodesQueue.reserve(model.nodes.size());
+	for (int i = 0; i < data->scene->nodes_count; i++) {
+		nodesQueue.push_back(data->scene->nodes[i]);
+	}
+
+	while(!nodesQueue.empty()){
+		cgltf_node& node = *nodesQueue.back();
+		if (node.light != nullptr) {
+			if (node.light->type == cgltf_light_type_point) {
+				modelData.pointLights.push_back(
+					getLightInfo(
+						getNodeGlobalTranslation(&node),
+						*node.light
+					)
+				);
+			}
+			else if (node.light->type == cgltf_light_type_directional) {
+				modelData.directionalLight.color = glm::make_vec3(node.light->color);
+				modelData.directionalLight.intensity = node.light->intensity;
+				modelData.directionalLight.direction = (
+						getNodeGlobalRotation(&node) * glm::vec3(0, 0, -1)
+					);
+				modelData.directionalLight.waste = -1.9872612;
+			}
+		}
+		if (node.mesh != nullptr) {
+			glm::mat4 transform = getNodeGlobalTransform(&node);
 			int mIndex = node.mesh - model.meshes.begin();
-			auto transform = getNodeGlobalTransform(&node);
 			addedMeshes.insert(node.mesh);
 			for (auto& primitive : loadedMeshes[mIndex]) {
 				modelData.meshData.meshes.push_back(primitive.first);
@@ -365,7 +513,20 @@ std::optional<ModelData> loadGLTF(const char* filepath) {
 				modelData.meshData.transforms.push_back(transform);
 			}
 		}
+		
+		nodesQueue.pop_back();
+		for (int i = 0; i < node.children_count; i++)
+		{
+			nodesQueue.push_back(node.children[i]);
+		}
 	}
 	cgltf_free(data);
+
+	int tricount = 0, vertexcount = 0;
+	for (auto& mesh : modelData.meshData.meshes) {
+		vertexcount += mesh.vertices.size();
+		tricount += mesh.indices.size() / 3;
+	}
+
 	return modelData;
 }
