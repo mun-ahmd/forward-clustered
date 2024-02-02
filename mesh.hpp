@@ -43,6 +43,8 @@ public:
 	std::shared_ptr<Buffer> vertexBuffer;
 	std::shared_ptr<Buffer> indexBuffer;
 	uint32_t numIndices;
+	VkIndexType indexType;
+
 	Mesh() = default;
 	Mesh(VulkanCore core, const VkCommandPool commandPool, MeshData<Vertex3>& meshData) {
 		const auto& vertexData = meshData.vertices;
@@ -55,26 +57,55 @@ public:
 		);
 		auto vertexStagingBuffer = prepareStagingBuffer(core, vertexData.data(), vertexDataSize);
 
+		if (meshData.vertices.size() < std::numeric_limits<uint16_t>::max()) {
+			//if max vertex index can fit in 16 bits use 16 bit index
+			indexType = VK_INDEX_TYPE_UINT16;
 
-		std::vector<uint16_t> indexData(meshData.indices.begin(), meshData.indices.end());
-		size_t indexDataSize = indexData.size() * sizeof(uint16_t);
-		this->numIndices = indexData.size();
-		this->indexBuffer = Buffer::create(
-			core, indexDataSize,
-			VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			(VmaAllocationCreateFlagBits)0,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-		);
-		auto indexStagingBuffer = prepareStagingBuffer(core, indexData.data(), indexDataSize);
+			std::vector<uint16_t> indexData(meshData.indices.begin(), meshData.indices.end());
+			size_t indexDataSize = indexData.size() * sizeof(uint16_t);
+			this->numIndices = indexData.size();
+			this->indexBuffer = Buffer::create(
+				core, indexDataSize,
+				VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				(VmaAllocationCreateFlagBits)0,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+			);
 
-		VkBufferCopy copier{};
-		copier.dstOffset = 0; copier.srcOffset = 0;
-		copier.size = vertexDataSize;
-		BufferCopyInfo vBufferCI(vertexStagingBuffer->buffer, vertexBuffer->buffer, copier);
-		copier.size = indexDataSize;
-		BufferCopyInfo iBufferCI(indexStagingBuffer->buffer, indexBuffer->buffer, copier);
+			auto indexStagingBuffer = prepareStagingBuffer(core, indexData.data(), indexDataSize);
 
-		copyBuffer(core, commandPool, { vBufferCI, iBufferCI });
+			VkBufferCopy copier{};
+			copier.dstOffset = 0; copier.srcOffset = 0;
+			copier.size = vertexDataSize;
+			BufferCopyInfo vBufferCI(vertexStagingBuffer->buffer, vertexBuffer->buffer, copier);
+			copier.size = indexDataSize;
+			BufferCopyInfo iBufferCI(indexStagingBuffer->buffer, indexBuffer->buffer, copier);
+
+			copyBuffer(core, commandPool, { vBufferCI, iBufferCI });
+		}
+		else {
+			//use 32 bit index
+			indexType = VK_INDEX_TYPE_UINT32;
+
+			size_t indexDataSize =  meshData.indices.size() * sizeof(uint32_t);
+			this->numIndices = meshData.indices.size();
+			this->indexBuffer = Buffer::create(
+				core, indexDataSize,
+				VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				(VmaAllocationCreateFlagBits)0,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+			);
+
+			auto indexStagingBuffer = prepareStagingBuffer(core, meshData.indices.data(), indexDataSize);
+
+			VkBufferCopy copier{};
+			copier.dstOffset = 0; copier.srcOffset = 0;
+			copier.size = vertexDataSize;
+			BufferCopyInfo vBufferCI(vertexStagingBuffer->buffer, vertexBuffer->buffer, copier);
+			copier.size = indexDataSize;
+			BufferCopyInfo iBufferCI(indexStagingBuffer->buffer, indexBuffer->buffer, copier);
+
+			copyBuffer(core, commandPool, { vBufferCI, iBufferCI });
+		}
 	}
 };
 

@@ -41,11 +41,11 @@ public:
 			(VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT),
 			0
 		);
-		stagingBufMap = stagingBuf->allocattedInfo.pMappedData;
+		stagingBufMap = stagingBuf->allocation->GetMappedData();
 	}
 
 	size_t getResourceOffset() {
-		return (this->storedResources - 1) * this->paddedElementSize;
+		return this->storedResources * this->paddedElementSize;
 	}
 
 	size_t getResourceOffset(size_t index) {
@@ -123,7 +123,7 @@ public:
 			(VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT),
 			0
 		);
-		auto stagingBufMap = stagingBuf->allocattedInfo.pMappedData;
+		auto stagingBufMap = stagingBuf->allocation->GetMappedData();
 		memcpy(stagingBufMap, &baseInfo, sizeof(BaseInfo));
 		memcpy(reinterpret_cast<char*>(stagingBufMap) + sizeof(BaseInfo), arrInfo, sizeof(ArrayInfo) * arrLen);
 
@@ -170,9 +170,7 @@ public:
 		copyBuffer(core, pool, { BufferCopyInfo(stagingBuf->buffer, resourceBuf->buffer, copier) });
 	}
 
-	VkDescriptorSet createDescriptor(VulkanCore core, VkShaderStageFlags shaderStageFlags) {
-		//todo update --> done
-		//todo test
+	std::vector<VkDescriptorSetLayoutBinding> getDescriptorBindings(VkShaderStageFlags shaderStageFlags) {
 		VkDescriptorSetLayoutBinding binding0{};
 		binding0.binding = 0;
 		binding0.descriptorCount = 1;
@@ -184,29 +182,59 @@ public:
 		binding1.descriptorCount = 1;
 		binding1.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		binding1.stageFlags = shaderStageFlags;
-		auto descriptor = core->createDescriptorSet({ binding0, binding1 });
 
-		VkWriteDescriptorSet write{};
-		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		write.descriptorCount = 1;
-		write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		write.dstSet = descriptor;
-		write.dstBinding = 0;
-		VkDescriptorBufferInfo inf{};
-		inf.buffer = resourceBuf->buffer;
-		inf.offset = 0;
-		inf.range = sizeof(BaseInfo);
-		write.pBufferInfo = &inf;
+		return { binding0, binding1 };
+	}
 
-		auto write2 = write;
-		write.dstBinding = 1;
-		auto inf2 = inf;
-		inf2.offset = sizeof(BaseInfo);
-		inf2.range = sizeof(ArrayInfo) * this->maxLength;
-		write.pBufferInfo = &inf2;
+	void writeToDescriptorSet(VulkanCore core, VkDescriptorSet descriptorSet) {
 
-		VkWriteDescriptorSet writes[2] = { write, write2 };
-		vkUpdateDescriptorSets(core->device, 2, writes, 0, nullptr);
+		std::array<VkDescriptorBufferInfo, 2> infs{};
+		std::array<VkWriteDescriptorSet, 2> writes{};
+		{
+			VkDescriptorBufferInfo inf{};
+			inf.buffer = resourceBuf->buffer;
+			inf.offset = 0;
+			inf.range = sizeof(BaseInfo);
+			infs[0] = inf;
+		}
+		{
+			VkDescriptorBufferInfo inf{};
+			inf.buffer = resourceBuf->buffer;
+			inf.offset = sizeof(BaseInfo);
+			inf.range = sizeof(ArrayInfo) * this->maxLength;
+			infs[1] = inf;
+		}
+		{
+			VkWriteDescriptorSet write{};
+			write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			write.descriptorCount = 1;
+			write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			write.dstSet = descriptorSet;
+			write.pBufferInfo = &infs[0];
+			writes[0] = write;
+		}
+		{
+			VkWriteDescriptorSet write{};
+			write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			write.descriptorCount = 1;
+			write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			write.dstSet = descriptorSet;
+			write.dstBinding = 1;
+			write.pBufferInfo = &infs[1];
+			writes[1] = write;
+		}
+		vkUpdateDescriptorSets(
+			core->device,
+			writes.size(), writes.data(),
+			0, nullptr
+		);
+	}
+
+	VkDescriptorSet createDescriptor(VulkanCore core, VkShaderStageFlags shaderStageFlags) {
+		VkDescriptorSet descriptor = core->createDescriptorSet(
+			getDescriptorBindings(shaderStageFlags)
+		);
+		writeToDescriptorSet(core, descriptor);
 		return descriptor;
 	}
 };

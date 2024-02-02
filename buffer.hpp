@@ -11,10 +11,15 @@ struct BufferCopyInfo {
 };
 
 class Buffer {
+
+	//todo big problem, the mapped pointer in allocatedInfo can change due to defragmentation
+	//need to remove all instances where this is used
+	VmaAllocationInfo allocattedInfo;
+
 public:
 	VkBuffer buffer;
 	VmaAllocation allocation;
-	VmaAllocationInfo allocattedInfo;
+
 	inline static int activeAllocatedCount = 0;
 
 	static std::shared_ptr<Buffer> create(VulkanCore core,
