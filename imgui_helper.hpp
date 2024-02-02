@@ -4,6 +4,8 @@
 #include "imgui_impl_vulkan.h"
 #include "imgui_impl_glfw.h"
 
+#include "storage_helper.hpp"
+
 #include <filesystem>
 namespace fs = std::filesystem;
 
@@ -126,8 +128,10 @@ public:
 
 struct GLTFModelSelector {
 	constexpr inline static const char* baseDirectory = "3DModels";
+
 	std::vector<std::string> discoveredGLTFModelPaths;
-	std::string loadedModelPath = "3DModels/main_sponza/Main.1_Sponza\\NewSponza_Main_glTF_002.gltf";
+	std::string loadedModelPath = "3DModels/main_sponza/Main.1_Sponza/NewSponza_Main_glTF_002.gltf";
+
 	GLTFModelSelector() {
 		//discover possible model paths
 		std::vector<std::string> directoryQueue = { baseDirectory };
@@ -137,8 +141,7 @@ struct GLTFModelSelector {
 				for (const auto& entry : fs::directory_iterator(directoryQueue[directoryQueueIndex])) {
 					if (
 						fs::is_regular_file(entry) &&
-						(entry.path().extension() == ".gltf" ||
-							entry.path().extension() == ".glb")
+						(entry.path().extension() == ".gltf")
 						) {
 						std::cout << "Found .gltf file: " << entry.path() << std::endl;
 						discoveredGLTFModelPaths.push_back(entry.path().generic_string());
@@ -153,23 +156,25 @@ struct GLTFModelSelector {
 		catch (const std::exception& e) {
 			std::cerr << "Error: " << e.what() << std::endl;
 		}
+
+		if (Store::itemInStore("lastLoadedModel")) {
+			auto bytes = Store::fetchBytes("lastLoadedModel");
+			this->loadedModelPath = std::string(bytes.get());
+		}
 	}
 
 	void render(std::function<void()> ifFileSelectedCallback) {
-		ImGui::Begin("Model Selection Menu");
-
 		// Display menu items
 		for (int i = 0; i < discoveredGLTFModelPaths.size(); i++) {
 			ImGui::PushID(i); // Ensure each menu item has a unique ID
 			if (ImGui::Button(discoveredGLTFModelPaths[i].c_str())) {
 				printf("Item %d clicked!\n", i);
 				this->loadedModelPath = discoveredGLTFModelPaths[i];
+				Store::storeBytes("lastLoadedModel", this->loadedModelPath.c_str(), this->loadedModelPath.size() + 1);
 				ifFileSelectedCallback();
 			}
 			ImGui::PopID();
 		}
-
-		ImGui::End();
 	}
 
 } gltfModelSelector;
