@@ -16,3 +16,4 @@ ImageResizer/ImageResizer/x64
 ImageResizer.exe
 ImageResizer.pdb
 /Shaders/.vscode/settings.json
+ObjectStore/*

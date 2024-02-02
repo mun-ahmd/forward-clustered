@@ -183,12 +183,15 @@
     <ClInclude Include="Imgui\imstb_textedit.h" />
     <ClInclude Include="Imgui\imstb_truetype.h" />
     <ClInclude Include="imgui_helper.hpp" />
+    <ClInclude Include="light.hpp" />
     <ClInclude Include="mesh.hpp" />
+    <ClInclude Include="skybox.hpp" />
+    <ClInclude Include="storage_helper.hpp" />
     <ClInclude Include="swapchain.hpp" />
     <ClInclude Include="vulkan_utils.hpp" />
     <ClInclude Include="window_helper.h" />
     <ClInclude Include="MeshLoader.hpp" />
-    <ClInclude Include="resources.hpp" />
+    <ClInclude Include="material.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

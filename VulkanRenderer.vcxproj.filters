@@ -34,6 +34,9 @@
     <Filter Include="Header Files\helpers">
       <UniqueIdentifier>{77c5a91c-635b-4196-bdf8-7e06ae49e435}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\rendering">
+      <UniqueIdentifier>{df8f72f4-1cf3-41b4-867c-c50da7dd6933}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -101,7 +104,7 @@
     <ClInclude Include="Imgui\imconfig.h">
       <Filter>Source Files\Imgui</Filter>
     </ClInclude>
-    <ClInclude Include="resources.hpp">
+    <ClInclude Include="material.hpp">
       <Filter>Header Files\resources</Filter>
     </ClInclude>
     <ClInclude Include="buffer.hpp">
@@ -142,6 +145,15 @@
     </ClInclude>
     <ClInclude Include="window_helper.h">
       <Filter>Header Files\helpers</Filter>
+    </ClInclude>
+    <ClInclude Include="skybox.hpp">
+      <Filter>Header Files\rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="light.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="storage_helper.hpp">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
