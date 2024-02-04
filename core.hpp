@@ -172,9 +172,10 @@ private:
 		}
 
 		VkPhysicalDeviceFeatures deviceFeatures{};
-		deviceFeatures.samplerAnisotropy = VK_TRUE;
+		deviceFeatures.samplerAnisotropy = VK_TRUE;	
 
 		VkPhysicalDeviceDescriptorIndexingFeatures indexingFeatures{};
+
 		indexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
 		indexingFeatures.pNext = nullptr;
 		indexingFeatures.descriptorBindingPartiallyBound = VK_TRUE;

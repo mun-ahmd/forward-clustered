@@ -9,12 +9,19 @@
 #include "stb_image_write.h"
 #include "stb_image_resize2.h"
 
+glm::ivec3 getImageInfo(const char* filepath) {
+	glm::ivec3 info{ 0,0,0 };
+	stbi_info(filepath, &info.x, &info.y, &info.z);
+	return info;
+}
+
 constexpr stbir_pixel_layout pixelLayouts[4] = {
 	STBIR_1CHANNEL,
 	STBIR_2CHANNEL,
 	STBIR_RGB,
 	STBIR_RGBA
 };
+
 constexpr stbir_pixel_layout numComponentsToLayout(uint8_t numComponents) {
 	return pixelLayouts[numComponents - 1];
 }

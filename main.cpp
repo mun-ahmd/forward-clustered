@@ -7,7 +7,7 @@
 #include <optional>
 #include <functional>
 
-#define NO_TEXTURES
+//#define NO_TEXTURES
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -31,6 +31,7 @@
 #include "mesh.hpp"
 #include "frame.hpp"
 #include "skybox.hpp"
+#include "asyncImageLoader.hpp"
 
 constexpr int lightCount = 10;
 
@@ -234,7 +235,7 @@ private:
 							loadImage(
 								finalPath.c_str(),
 								i == 0 ? 4 : 2,
-								false,
+								i == 0,
 								resizeSize
 							), vSampler
 						);
@@ -247,12 +248,11 @@ private:
 		for (auto& matIndex : loadedModel.meshData.matIndex) {
 			MaterialInfo matInf{};
 			MaterialPBR loadedMat = loadedModel.materials[matIndex];
-#ifndef NO_TEXTURES
+#ifdef NO_TEXTURES
 			loadedMat.metallicRoughness.baseColorTex = "";
 			loadedMat.metallicRoughness.metallicRoughnessTex = "";
 			loadedMat.diffuseSpecular.diffuseTex = "";
 			loadedMat.diffuseSpecular.specularGlossTex = "";
-
 #endif
 
 			matInf.baseColorFactor = loadedMat.isMetallicRoughness ?
@@ -317,10 +317,11 @@ private:
 		}
 	}
 
-	RC<Image> vImage;
 	RC<Sampler> vSampler;
 
 	SkyboxRenderer skyboxR;
+
+	RC<AsyncImageLoader> imageLoader;
 
 	void initVulkan() {
 		core = VulkanUtils::utils().getCore();
@@ -370,10 +371,16 @@ private:
 			camera.movementSpeed() = loadedMovementSpeed;
 		}
 
+		imageLoader = std::make_shared<AsyncImageLoader>(
+			glm::ivec3(8192, 4096, 1), 4, 2
+		);
+		imageLoader->init();
+		imageLoader->start();
+
+		skyboxR.initialize(imageLoader, renderPass, 1);
 		initMeshesMaterialsLights();
-		imgui.init(core, this->renderPass, this->frames[0].commandBuffer, 1);
-		
-		skyboxR.initialize(renderPass, 1);
+
+		imgui.init(core, this->renderPass, this->frames[0].commandBuffer, 1);		
 	}
 	 
 
@@ -533,6 +540,7 @@ private:
 		std::vector<VkSemaphore>& additionalWaitSemaphores,
 		std::vector<VkPipelineStageFlags>& waitPipelineStageFlags) {
 		//perform no cpu<->gpu transfers here
+
 		this->imgui.newFrame();
 
 		ImGui::Begin("UI");
@@ -810,6 +818,12 @@ private:
 					rebuildShadingPipe = false;
 				}
 
+				//transfer async images loaded
+				//this a gpu -> gpu transfer through preexisting staging buffers
+				{
+					this->imageLoader->processResults();
+				}
+
 				double deltaTime = glfwGetTime() - startTime;
 				startTime = glfwGetTime();
 				if (!shouldShowMouse) {
@@ -854,74 +868,69 @@ private:
 		assert(desiredChannels == 4 || desiredChannels == 2 || desiredChannels == 1);
 		//loads images from files and then
 		//creates a VkImage trying its best to find the right format
-		ImagePtr imageData = loadImageFromFile(
-			filepath,
-			isSRGB,
-			desiredChannels
-		);
 
-		//std::cout << "Image: " << filepath << " was " << imageData->getWidth() << "x" << imageData->getHeight() << " pixels" << std::endl;
-
-		if (
-			desiredResolution.has_value() &&
-			(imageData->getResolution() != desiredResolution.value())
-			) {
-			//need to resize image
-			imageData = std::move(imageData->resize(desiredResolution->x, desiredResolution->y));
-		}
+		glm::ivec3 info = getImageInfo(filepath);
 
 		constexpr VkFormat formats[4][2] = {
-	{
-		VK_FORMAT_R8_UNORM,
-		VK_FORMAT_R8_SRGB
-	},
-	{
-		VK_FORMAT_R8G8_UNORM,
-		VK_FORMAT_R8G8_SRGB
-	},
-	{
-		VK_FORMAT_R8G8B8_UNORM,
-		VK_FORMAT_R8G8B8_SRGB
-	},
-	{
-		VK_FORMAT_R8G8B8A8_UNORM,
-		VK_FORMAT_R8G8B8A8_SRGB
-	}
+			{
+				VK_FORMAT_R8_UNORM,
+				VK_FORMAT_R8_SRGB
+			},
+			{
+				VK_FORMAT_R8G8_UNORM,
+				VK_FORMAT_R8G8_SRGB
+			},
+			{
+				VK_FORMAT_R8G8B8_UNORM,
+				VK_FORMAT_R8G8B8_SRGB
+			},
+			{
+				VK_FORMAT_R8G8B8A8_UNORM,
+				VK_FORMAT_R8G8B8A8_SRGB
+			}
 		};
+
 		auto iCreateInf = Image::makeCreateInfo(
 			formats[desiredChannels - 1][isSRGB],
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-			VkExtent3D{ (unsigned int)imageData->getWidth(), (unsigned int)imageData->getHeight(), 1 }
+			VkExtent3D{ (unsigned int)info.x, (unsigned int)info.y, 1 }
 		);
-		//iCreateInf.mipLevels = Image::getMipLevelsForFull(iCreateInf.extent);
 
-		//todo major allocate for mips too
-		auto stagingBuf = prepareStagingBuffer(core, imageData->getData(), imageData->getSizeInBytes());
-
-		imageData.reset();
-
-		vImage = Image::create(
+		RC<Image> vImage = Image::create(
 			core,
 			iCreateInf,
 			VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT
 		);
-
-		VkBufferImageCopy region{};
-		region.bufferOffset = 0;
-		region.bufferRowLength = 0;
-		region.bufferImageHeight = 0;
-
-		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		region.imageSubresource.mipLevel = 0;
-		region.imageSubresource.baseArrayLayer = 0;
-		region.imageSubresource.layerCount = 1;
-
-		region.imageOffset = { 0, 0, 0 };
-		region.imageExtent = vImage->extent;
-
-		vImage->transitionImageLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		vImage->copyFromBuffer(stagingBuf, region);
 		vImage->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+		ImageLoadRequest imageLoadRequest{};
+		imageLoadRequest.desiredChannels = desiredChannels;
+		imageLoadRequest.resolution = glm::ivec3(info.x, info.y, 1);
+		imageLoadRequest.path = filepath;
+		imageLoadRequest.isSRGB = isSRGB;
+
+		imageLoadRequest.callback = [vImage](ImageLoadRequest& request, RC<Buffer> stagingBuf) {
+			//std::cout << "doing callback for: " << request.path << std::endl;
+
+			VkBufferImageCopy region{};
+			region.bufferOffset = 0;
+			region.bufferRowLength = 0;
+			region.bufferImageHeight = 0;
+
+			region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			region.imageSubresource.mipLevel = 0;
+			region.imageSubresource.baseArrayLayer = 0;
+			region.imageSubresource.layerCount = 1;
+
+			region.imageOffset = { 0, 0, 0 };
+			region.imageExtent = vImage->extent;
+
+			vImage->transitionImageLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+			vImage->copyFromBuffer(stagingBuf, region);
+			vImage->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		};
+
+		imageLoader->request(imageLoadRequest);
 
 		return vImage;
 	}
@@ -1401,6 +1410,7 @@ private:
 		swapChain = SwapChain(core, swapChainFormat, swapPresentMode, chooseSwapExtent(swapCapabilities.capabilities), renderPass);
 	}
 };
+
 
 int main() {
 	Application app;

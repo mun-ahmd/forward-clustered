@@ -179,7 +179,6 @@ void main(){
 
     fragColor = vec4(color, 1.0);
 
-
 	// vec3 normal = normalize(fragNorm);
 	// fragColor = vec4(0.0);
 	// vec4 baseColor = texture(MaterialTextures[baseTexId_metallicRoughessTexId_waste2.x], fragUV);

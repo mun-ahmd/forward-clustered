@@ -155,5 +155,11 @@
     <ClInclude Include="storage_helper.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="asyncImageLoader.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ConcurrentQueue.hpp">
+      <Filter>Header Files\helpers</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

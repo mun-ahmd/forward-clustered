@@ -65,6 +65,17 @@ inline void copyBuffer(VulkanCore core, VkCommandPool commandPool, std::vector<B
 	core->endSingleTimeCommands(commandPool, commandBuffer);
 }
 
+inline auto prepareStagingBufferPersistant(VulkanCore core, size_t dataSize) {
+	auto stagingBuffer = Buffer::create(
+		core, dataSize,
+		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		(VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT),
+		VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+	);
+	return stagingBuffer;
+}
+
+
 inline auto prepareStagingBuffer(VulkanCore core, const void* data, size_t dataSize) {
 	auto stagingBuffer = Buffer::create(
 		core, dataSize,

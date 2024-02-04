@@ -2,6 +2,7 @@
 
 #include "vulkan_utils.hpp"
 #include "image.hpp"
+#include "asyncImageLoader.hpp"
 
 //for simplicity drawn with fullscreen triangle instead of cube
 class SkyboxRenderer {
@@ -11,6 +12,7 @@ public:
 	};
 private:
 
+	RC<Image> image;
 	UniqueImageView cubemap;
 	UniqueSampler sampler;
 	
@@ -154,55 +156,64 @@ private:
 		vkDestroyShaderModule(core->device, fragShaderModule, nullptr);
 		vkDestroyShaderModule(core->device, vertShaderModule, nullptr);
 	}
-	void createCubemap() {
-		auto core = VulkanUtils::utils().getCore();
-		FloatImagePtr lImage = loadFloatImageFromFile(
-			R"(C:\Users\munee\source\repos\VulkanRenderer\3DModels\meadow_2_8k.hdr)"
-			, 4);
+	void createCubemap(RC<AsyncImageLoader> iLoader) {
+
+		ImageLoadRequest req{};
+		req.desiredChannels = 4;
+		req.isFloat = true;
+		req.path = 
+			R"(C:\Users\munee\source\repos\VulkanRenderer\3DModels\meadow_2_8k.hdr)";
+		auto sizeInfo = getImageInfo(req.path.c_str());
+		req.resolution = glm::ivec3(sizeInfo.x, sizeInfo.y, 1);
+
 		//equirectangular image
 		VkExtent3D extent{};
-		extent.width = lImage->getWidth();
-		extent.height = lImage->getHeight();
+		extent.width = sizeInfo.x;
+		extent.height = sizeInfo.y;
 		extent.depth = 1;
+
 		auto CI = Image::makeCreateInfo(
 			VK_FORMAT_R32G32B32A32_SFLOAT,
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 			extent
 		);
+
+		auto core = VulkanUtils::utils().getCore();
 		
-		UniqueImage image = Image::create(
+		image = Image::create(
 			core,
 			CI,
 			VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT
 		);
 
-		auto stagingBuf = prepareStagingBuffer(
-			core, lImage->getData(),
-			lImage->getSizeInBytes()
-		);
-
-		VkBufferImageCopy region{};
-		region.bufferOffset = 0;
-		region.bufferRowLength = 0;
-		region.bufferImageHeight = 0;
-
-		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		region.imageSubresource.mipLevel = 0;
-		region.imageSubresource.baseArrayLayer = 0;
-		region.imageSubresource.layerCount = 1;
-
-		region.imageOffset = { 0, 0, 0 };
-		region.imageExtent = image->extent;
-
-		image->transitionImageLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		image->copyFromBuffer(stagingBuf, region);
 		image->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
 		this->cubemap = getImageView(
-			std::move(image),
+			image,
 			VK_FORMAT_R32G32B32A32_SFLOAT,
 			VK_IMAGE_ASPECT_COLOR_BIT
 		);
+
+		req.callback = [weak_image=std::weak_ptr<Image>(image)](ImageLoadRequest& request, RC<Buffer> staging) {
+			auto image = weak_image.lock();
+			VkBufferImageCopy region{};
+			region.bufferOffset = 0;
+			region.bufferRowLength = 0;
+			region.bufferImageHeight = 0;
+
+			region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			region.imageSubresource.mipLevel = 0;
+			region.imageSubresource.baseArrayLayer = 0;
+			region.imageSubresource.layerCount = 1;
+
+			region.imageOffset = { 0, 0, 0 };
+			region.imageExtent = image->extent;
+
+			image->transitionImageLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+			image->copyFromBuffer(staging, region);
+			image->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		};
+
+		iLoader->request(req);
 	}
 	void createSampler() {
 		this->sampler = Sampler::create(
@@ -250,8 +261,8 @@ private:
 	}
 
 public:
-	void initialize(VkRenderPass renderPass, uint32_t subpassIndex) {
-		this->createCubemap();
+	void initialize(RC<AsyncImageLoader> iLoader, VkRenderPass renderPass, uint32_t subpassIndex) {
+		this->createCubemap(iLoader);
 		this->createSampler();
 		this->createDescriptorSet();
 		this->createPipeline(renderPass, subpassIndex);

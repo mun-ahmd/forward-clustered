@@ -3,6 +3,9 @@
 #include <string>
 #include <glm/glm.hpp>
 
+//returns width, height, numComponents
+glm::ivec3 getImageInfo(const char* filepath);
+
 class ImageData {
 private:
 	ImageData(unsigned char* data, int width, int height, int numComponents, bool isSRGB);
@@ -29,9 +32,9 @@ public:
 
 	std::unique_ptr<ImageData> resize(int newWidth, int newHeight);
 };
+
 typedef std::unique_ptr<ImageData> ImagePtr;
 ImagePtr loadImageFromFile(const char* filepath, bool isSRGB, int desiredComponents);
-
 
 class FloatImageData {
 private:

@@ -166,9 +166,11 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="asyncImageLoader.hpp" />
     <ClInclude Include="buffer.hpp" />
     <ClInclude Include="buffer_helpers.hpp" />
     <ClInclude Include="cameraObj.h" />
+    <ClInclude Include="ConcurrentQueue.hpp" />
     <ClInclude Include="core.hpp" />
     <ClInclude Include="fast_obj.h" />
     <ClInclude Include="frame.hpp" />
