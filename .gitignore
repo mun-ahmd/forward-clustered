@@ -1,4 +1,7 @@
 .vs/
+VulkanRenderer.vcxproj.filters
+VulkanRenderer.vcxproj.user
+VulkanRenderer.vcxproj
 VulkanStartingOut.vcxproj.filters
 VulkanStartingOut.vcxproj.user
 VulkanStartingOut.vcxproj
