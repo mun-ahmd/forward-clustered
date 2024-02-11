@@ -39,6 +39,14 @@ struct DiffuseSpecularMat {
 	float glossinessFactor;
 };
 
+//struct TextureInfo {
+//	std::string path = "";
+//	int mag_filter;
+//	int min_filter;
+//	int wrap_s;
+//	int wrap_t;
+//};
+
 struct MaterialPBR {
 	//can use union but don't bother
 	MetallicRoughnessMat metallicRoughness;

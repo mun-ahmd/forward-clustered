@@ -84,7 +84,7 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0)
 }
 
 void main(){
-    vec3 albedo     = texture(MaterialTextures[baseTexId_metallicRoughessTexId_waste2.x], fragUV).rgb * baseColorFactor.rgb;
+    vec3 albedo     = texture(MaterialTextures[baseTexId_metallicRoughessTexId_waste2.x], vec2(fragUV.x, fragUV.y)).rgb * baseColorFactor.rgb;
 	vec2 metallicRoughness = texture(MaterialTextures[baseTexId_metallicRoughessTexId_waste2.y], fragUV).rg * metallicRoughness_waste2.rg;
     float metallic  = metallicRoughness.r;
     float roughness = metallicRoughness.g;

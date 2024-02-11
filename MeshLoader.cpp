@@ -46,7 +46,7 @@ public:
 			return ptr[index];
 		}
 		inline bool empty() { return len == 0; }
-		inline size_t size() { return len; }
+		inline size_t size() const { return len; }
 		inline T* data() { return ptr; }
 		inline const T* data() const { return ptr; }
 		inline T* begin() { return ptr; }
@@ -194,7 +194,7 @@ std::vector<std::vector<std::pair<MeshData<Vertex3>, int>>> loadMeshes(ModelInte
 
 				curr.pos = coordinateSystemCorrection(curr.pos);
 				curr.norm = coordinateSystemCorrection(curr.norm);
-				curr.uv = coordinateSystemCorrection(curr.uv);
+				//curr.uv = coordinateSystemCorrection(curr.uv);
 
 				data.vertices.push_back(curr);
 			}
@@ -271,7 +271,7 @@ inline std::string texturePathHelper(std::string& gltfFilePath, std::string texP
 		).generic_string();
 }
 
-inline bool hasTexture(cgltf_texture_view& view) {
+inline bool hasTexture(const cgltf_texture_view& view) {
 	return view.texture != NULL;
 }
 
@@ -284,7 +284,7 @@ PointLightInfo getLightInfo(glm::vec3 position, cgltf_light& light) {
 	return info;
 }
 
-std::vector<MaterialPBR> loadMaterials(std::string mPath, ModelInterface& model) {
+std::vector<MaterialPBR> loadMaterials(std::string mPath, const ModelInterface& model) {
 	std::vector<MaterialPBR> materials;
 	materials.reserve(model.materials.size());
 	for (auto& material : model.materials) {
@@ -299,7 +299,9 @@ std::vector<MaterialPBR> loadMaterials(std::string mPath, ModelInterface& model)
 			cgltf_pbr_metallic_roughness pbr = material.pbr_metallic_roughness;
 			MetallicRoughnessMat mat;
 			if(hasTexture(pbr.metallic_roughness_texture))
+			{
 				mat.metallicRoughnessTex = texturePathHelper(mPath, pbr.metallic_roughness_texture.texture->image->uri);
+			}
 			if (hasTexture(pbr.base_color_texture))
 				mat.baseColorTex = texturePathHelper(mPath, pbr.base_color_texture.texture->image->uri);
 			mat.metallic_factor = pbr.metallic_factor;
@@ -469,19 +471,22 @@ std::optional<ModelData> loadGLTF(const char* filepath) {
 
 	ModelData modelData;
 
+	//for (auto& matID : modelData.meshData.matIndex) {
+	//	std::cout << "confirm " << (model.materials.end() - 1 - matID)->name << std::endl;
+	//}
 	modelData.materials = loadMaterials(filepath, model);
+
 	modelData.meshData.meshes.reserve(loadedMeshes.size());
 	modelData.meshData.transforms.reserve(loadedMeshes.size());
 	modelData.meshData.matIndex.reserve(loadedMeshes.size());
 	modelData.pointLights.reserve(model.lights.size());
 
-	
-	
 	std::vector<cgltf_node*> nodesQueue;
 	nodesQueue.reserve(model.nodes.size());
 	for (int i = 0; i < data->scene->nodes_count; i++) {
 		nodesQueue.push_back(data->scene->nodes[i]);
 	}
+
 
 	while(!nodesQueue.empty()){
 		cgltf_node& node = *nodesQueue.back();
@@ -520,6 +525,7 @@ std::optional<ModelData> loadGLTF(const char* filepath) {
 			nodesQueue.push_back(node.children[i]);
 		}
 	}
+
 	cgltf_free(data);
 
 	int tricount = 0, vertexcount = 0;

@@ -19,6 +19,9 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_LEFT_HANDED
 
+#include <glm/gtx/string_cast.hpp>
+
+
 #include "vulkan_utils.hpp"
 #include "MeshLoader.hpp"
 #include "ImageLoader.hpp"
@@ -177,18 +180,21 @@ private:
 	uint32_t numFramesInFlight = MAX_FRAMES_IN_FLIGHT;
 
 	void initMeshesMaterialsLights() {
-		meshes.clear();
-		transforms.clear();
-		meshMatIndices.clear();
-		materials.clear();
+		this->meshes.clear();
+		this->transforms.clear();
+		this->meshMatIndices.clear();
+		this->materials.clear();
+		this->pointLights.clear();
 
 		auto loadedModel = loadGLTF(gltfModelSelector.loadedModelPath.c_str()).value();
+
 		meshes.reserve(loadedModel.meshData.meshes.size());
-		transforms = loadedModel.meshData.transforms;
-		
-		materials.clear();
 		materials.reserve(loadedModel.meshData.meshes.size());
-		
+		transforms = loadedModel.meshData.transforms;
+		meshMatIndices = std::vector<uint32_t>(
+			loadedModel.meshData.matIndex.begin(),
+			loadedModel.meshData.matIndex.end()
+		);
 
 		materials.addMaterialImage(
 			loadImage(
@@ -204,14 +210,15 @@ private:
 		imagePathToIndex[""] = 0;
 #ifndef NO_TEXTURES
 		for (auto& mat : loadedModel.materials) {
-			const char* textures[2];
+			std::string textures[2];
 			if (mat.isMetallicRoughness) {
-				textures[0] = mat.metallicRoughness.baseColorTex.c_str();
-				textures[1] = mat.metallicRoughness.metallicRoughnessTex.c_str();
+				textures[0] = mat.metallicRoughness.baseColorTex;
+				textures[1] = mat.metallicRoughness.metallicRoughnessTex;
 			}
 			else {
-				textures[0] = mat.diffuseSpecular.diffuseTex.c_str();
-				textures[1] = mat.diffuseSpecular.specularGlossTex.c_str();
+				throw std::runtime_error("");
+				textures[0] = mat.diffuseSpecular.diffuseTex;
+				textures[1] = mat.diffuseSpecular.specularGlossTex;
 			}
 			
 			for (int i = 0; i < 2; i++) {
@@ -219,24 +226,14 @@ private:
 				if (
 					imagePathToIndex.find(tex) == imagePathToIndex.end()
 					) {
-					//todo taking too long and too big
-					// use https://github.com/nothings/stb/blob/master/stb_image_resize2.h
-					// to reduce sizes of images
-					auto cachedPath = fs::path("3DModels/ImageCache") / fs::path(tex).filename();
-					std::string finalPath = tex;
-					std::optional resizeSize = glm::ivec2(256, 256);
-					if (fs::is_regular_file(cachedPath)) {
-						finalPath = cachedPath.generic_string();
-						resizeSize = std::nullopt;
-					}
-					imagePaths.push_back(finalPath);
+					imagePaths.push_back(tex);
 					imagePathToIndex[tex] =
 						materials.addMaterialImage(
 							loadImage(
-								finalPath.c_str(),
+								tex.c_str(),
 								i == 0 ? 4 : 2,
-								i == 0,
-								resizeSize
+								false,
+								std::nullopt
 							), vSampler
 						);
 				}
@@ -245,16 +242,14 @@ private:
 		}
 #endif
 		
-		for (auto& matIndex : loadedModel.meshData.matIndex) {
+		for (MaterialPBR& loadedMat : loadedModel.materials) {
 			MaterialInfo matInf{};
-			MaterialPBR loadedMat = loadedModel.materials[matIndex];
 #ifdef NO_TEXTURES
 			loadedMat.metallicRoughness.baseColorTex = "";
 			loadedMat.metallicRoughness.metallicRoughnessTex = "";
 			loadedMat.diffuseSpecular.diffuseTex = "";
 			loadedMat.diffuseSpecular.specularGlossTex = "";
 #endif
-
 			matInf.baseColorFactor = loadedMat.isMetallicRoughness ?
 				loadedMat.metallicRoughness.baseColorFactor :
 				loadedMat.diffuseSpecular.diffuseFactor;
@@ -271,9 +266,8 @@ private:
 					loadedMat.diffuseSpecular.glossinessFactor
 				);
 
-			matInf.baseTexId_metallicRoughessTexId_waste2 =
-				glm::uvec4(
-					glm::uvec2(
+				matInf.baseTexId_metallicRoughessTexId_waste2 =
+					glm::uvec4(
 						loadedMat.isMetallicRoughness ?
 						imagePathToIndex[
 							loadedMat.metallicRoughness.baseColorTex
@@ -281,26 +275,23 @@ private:
 						imagePathToIndex[
 							loadedMat.diffuseSpecular.diffuseTex
 						],
-								loadedMat.isMetallicRoughness ?
-								imagePathToIndex[
-									loadedMat.metallicRoughness.metallicRoughnessTex
-								] :
-								imagePathToIndex[
-									loadedMat.diffuseSpecular.specularGlossTex
-								]
-					),
-					0, 0
-				);
+						loadedMat.isMetallicRoughness ?
+						imagePathToIndex[
+							loadedMat.metallicRoughness.metallicRoughnessTex
+						] :
+						imagePathToIndex[
+							loadedMat.diffuseSpecular.specularGlossTex
+						],
+						0,
+						0
+					);
 			//std::cout << std::endl << "Material: " << matIndex;
 			//std::cout << imagePaths[matInf.baseTexId_metallicRoughessTexId_waste2.x] << " ";
 			//std::cout << imagePaths[matInf.baseTexId_metallicRoughessTexId_waste2.y] << std::endl;
 
 			materials.addMaterial(core, commandPool, matInf);
 		}
-		meshMatIndices = std::vector<uint32_t>(
-			loadedModel.meshData.matIndex.begin(),
-			loadedModel.meshData.matIndex.end()
-		);
+
 		for (size_t i = 0; i < loadedModel.meshData.meshes.size(); ++i)
 			meshes.push_back(Mesh(core, commandPool, loadedModel.meshData.meshes[i]));
 
@@ -695,6 +686,7 @@ private:
 
 		offset = 0;
 		for (int i = 0; i < meshes.size(); ++i) {
+			int matIndex = meshMatIndices[i];
 			uint32_t dynamicOffset = materials.getResourceOffset(meshMatIndices[i]);
 			vkCmdBindDescriptorSets(
 				activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
