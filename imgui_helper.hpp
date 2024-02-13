@@ -130,7 +130,7 @@ struct GLTFModelSelector {
 	constexpr inline static const char* baseDirectory = "3DModels";
 
 	std::vector<std::string> discoveredGLTFModelPaths;
-	std::string loadedModelPath = "3DModels/main_sponza/Main.1_Sponza/NewSponza_Main_glTF_002.gltf";
+	std::string loadedModelPath = "3DModels/cubeScene/cube.gltf";
 
 	GLTFModelSelector() {
 		//discover possible model paths

@@ -7,8 +7,6 @@
 #include <optional>
 #include <functional>
 
-//#define NO_TEXTURES
-
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -35,6 +33,8 @@
 #include "frame.hpp"
 #include "skybox.hpp"
 #include "asyncImageLoader.hpp"
+
+#include "GLTFScene.hpp"
 
 constexpr int lightCount = 10;
 
@@ -111,10 +111,6 @@ public:
 	}
 
 	~Application() {
-		meshes.clear();
-		meshes.shrink_to_fit();
-		materials.clear();
-
 		for (auto& frame : frames)
 			frame.cleanup(core->device);
 
@@ -158,18 +154,6 @@ private:
 
 	VkCommandPool commandPool;
 
-	std::vector<Mesh> meshes;
-
-	Materials materials;
-	std::vector<uint32_t> meshMatIndices;
-	std::vector<glm::mat4> transforms;
-
-	std::vector<PointLightInfo> pointLights;
-	LightsBuffer lightsBuffer;
-
-	VkDescriptorSet materialsDescriptorSet;
-
-	//RC<Buffer> buffer;
 	MyImgui imgui;
 
 	CamHandler camera;
@@ -177,149 +161,24 @@ private:
 	float nearPlane = 0.1f;
 	float farPlane = 200.f;
 
-	uint32_t numFramesInFlight = MAX_FRAMES_IN_FLIGHT;
-
-	void initMeshesMaterialsLights() {
-		this->meshes.clear();
-		this->transforms.clear();
-		this->meshMatIndices.clear();
-		this->materials.clear();
-		this->pointLights.clear();
-
-		auto loadedModel = loadGLTF(gltfModelSelector.loadedModelPath.c_str()).value();
-
-		meshes.reserve(loadedModel.meshData.meshes.size());
-		materials.reserve(loadedModel.meshData.meshes.size());
-		transforms = loadedModel.meshData.transforms;
-		meshMatIndices = std::vector<uint32_t>(
-			loadedModel.meshData.matIndex.begin(),
-			loadedModel.meshData.matIndex.end()
-		);
-
-		materials.addMaterialImage(
-			loadImage(
-				R"(C:\Users\munee\source\repos\VulkanRenderer\3DModels\blankVaibhav.png)",
-				4,
-				true
-			), vSampler
-		);
-																			
-		std::unordered_map<std::string, unsigned int> imagePathToIndex;
-		std::vector<std::string> imagePaths = { R"(C:\Users\munee\source\repos\VulkanRenderer\3DModels\blankVaibhav.png)" };
-		//empty path means default 0 texture
-		imagePathToIndex[""] = 0;
-#ifndef NO_TEXTURES
-		for (auto& mat : loadedModel.materials) {
-			std::string textures[2];
-			if (mat.isMetallicRoughness) {
-				textures[0] = mat.metallicRoughness.baseColorTex;
-				textures[1] = mat.metallicRoughness.metallicRoughnessTex;
-			}
-			else {
-				throw std::runtime_error("");
-				textures[0] = mat.diffuseSpecular.diffuseTex;
-				textures[1] = mat.diffuseSpecular.specularGlossTex;
-			}
-			
-			for (int i = 0; i < 2; i++) {
-				std::string tex = textures[i];
-				if (
-					imagePathToIndex.find(tex) == imagePathToIndex.end()
-					) {
-					imagePaths.push_back(tex);
-					imagePathToIndex[tex] =
-						materials.addMaterialImage(
-							loadImage(
-								tex.c_str(),
-								i == 0 ? 4 : 2,
-								false,
-								std::nullopt
-							), vSampler
-						);
-				}
-				//std::cout << std::endl << std::endl;
-			}
-		}
-#endif
-		
-		for (MaterialPBR& loadedMat : loadedModel.materials) {
-			MaterialInfo matInf{};
-#ifdef NO_TEXTURES
-			loadedMat.metallicRoughness.baseColorTex = "";
-			loadedMat.metallicRoughness.metallicRoughnessTex = "";
-			loadedMat.diffuseSpecular.diffuseTex = "";
-			loadedMat.diffuseSpecular.specularGlossTex = "";
-#endif
-			matInf.baseColorFactor = loadedMat.isMetallicRoughness ?
-				loadedMat.metallicRoughness.baseColorFactor :
-				loadedMat.diffuseSpecular.diffuseFactor;
-
-			matInf.metallicRoughness_waste2 = loadedMat.isMetallicRoughness ?
-				glm::vec4(
-					glm::vec2(
-						loadedMat.metallicRoughness.metallic_factor,
-						loadedMat.metallicRoughness.roughness_factor
-					), 1.0, 1.0
-				) :
-				glm::vec4(
-					loadedMat.diffuseSpecular.specularFactor,
-					loadedMat.diffuseSpecular.glossinessFactor
-				);
-
-				matInf.baseTexId_metallicRoughessTexId_waste2 =
-					glm::uvec4(
-						loadedMat.isMetallicRoughness ?
-						imagePathToIndex[
-							loadedMat.metallicRoughness.baseColorTex
-						] :
-						imagePathToIndex[
-							loadedMat.diffuseSpecular.diffuseTex
-						],
-						loadedMat.isMetallicRoughness ?
-						imagePathToIndex[
-							loadedMat.metallicRoughness.metallicRoughnessTex
-						] :
-						imagePathToIndex[
-							loadedMat.diffuseSpecular.specularGlossTex
-						],
-						0,
-						0
-					);
-			//std::cout << std::endl << "Material: " << matIndex;
-			//std::cout << imagePaths[matInf.baseTexId_metallicRoughessTexId_waste2.x] << " ";
-			//std::cout << imagePaths[matInf.baseTexId_metallicRoughessTexId_waste2.y] << std::endl;
-
-			materials.addMaterial(core, commandPool, matInf);
-		}
-
-		for (size_t i = 0; i < loadedModel.meshData.meshes.size(); ++i)
-			meshes.push_back(Mesh(core, commandPool, loadedModel.meshData.meshes[i]));
-
-		this->pointLights = std::move(loadedModel.pointLights);
-		for (int i = 0; i < frames.size(); i++) {
-			auto& frame = frames[i];
-			
-			this->lightsBuffer.setSunLight(loadedModel.directionalLight, i);
-
-			this->lightsBuffer.addPointLights(
-				core, commandPool,
-				this->pointLights.data(), this->pointLights.size()
-			);
-		}
-	}
-
-	RC<Sampler> vSampler;
-
 	SkyboxRenderer skyboxR;
 
 	RC<AsyncImageLoader> imageLoader;
+
+	std::unique_ptr<GLTFScene> scene;
 
 	void initVulkan() {
 		core = VulkanUtils::utils().getCore();
 
 		commandPool = VulkanUtils::utils().getCommandPool();
 
-		this->lightsBuffer = LightsBuffer(core, 1000, numFramesInFlight);
+		imageLoader = std::make_shared<AsyncImageLoader>(
+			glm::ivec3(8192, 4096, 1), 4, 2
+		);
+		imageLoader->init();
+		imageLoader->start();
+
+		this->scene = GLTFScene::create(imageLoader);
 
 		int i = 0;
 		for (auto& frame : frames) {
@@ -336,17 +195,6 @@ private:
 		auto swapCapabilities = core->querySwapChainSupport();
 		auto swapChainFormat = chooseSwapSurfaceFormat(swapCapabilities.formats);
 		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
-		
-		materials.init(1000);
-		materialsDescriptorSet = materials.getDescriptorSet();
-		
-		vSampler = Sampler::create(core, Sampler::makeCreateInfo(
-			{ VK_FILTER_LINEAR, VK_FILTER_LINEAR },
-			{VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT, VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT },
-			{},
-			VK_SAMPLER_MIPMAP_MODE_LINEAR,
-			core->gpuProperties.limits.maxSamplerAnisotropy
-		));
 
 		createRenderPass(swapChainFormat.format);
 		createGraphicsPipeline();
@@ -362,14 +210,9 @@ private:
 			camera.movementSpeed() = loadedMovementSpeed;
 		}
 
-		imageLoader = std::make_shared<AsyncImageLoader>(
-			glm::ivec3(8192, 4096, 1), 4, 2
-		);
-		imageLoader->init();
-		imageLoader->start();
-
 		skyboxR.initialize(imageLoader, renderPass, 1);
-		initMeshesMaterialsLights();
+		
+		this->scene->loadScene(gltfModelSelector.loadedModelPath.c_str());
 
 		imgui.init(core, this->renderPass, this->frames[0].commandBuffer, 1);		
 	}
@@ -408,7 +251,7 @@ private:
 			vkUpdateDescriptorSets(core->device, 1, &write, 0, nullptr);
 		}
 
-		frame->pointLightsDS = this->lightsBuffer.createDescriptorSet(
+		frame->pointLightsDS = this->scene->lightsBuffer.createDescriptorSet(
 			current_frame,
 			core,
 			VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT
@@ -653,17 +496,13 @@ private:
 		scissor.extent = swapChain.swapChainExtent;
 		vkCmdSetScissor(activeFrame.commandBuffer, 0, 1, &scissor);
 
-		VkDeviceSize offset = 0;
-		for (int i = 0; i < meshes.size(); ++i) {
-			MeshPushConstants constants{ transforms[i] };
-			vkCmdPushConstants(activeFrame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
-
-			vkCmdBindVertexBuffers(activeFrame.commandBuffer, 0, 1, &meshes[i].vertexBuffer->buffer, &offset);
-			vkCmdBindIndexBuffer(activeFrame.commandBuffer, meshes[i].indexBuffer->buffer, 0, meshes[i].indexType);
-			vkCmdDrawIndexed(activeFrame.commandBuffer, meshes[i].numIndices, 1, 0, 0, 0);
-		}
-
-
+		this->scene->drawAll(
+			activeFrame.commandBuffer,
+			[this](VkCommandBuffer cmd, GLTFScene& scene, const GLTFDrawable& drawable) {
+				MeshPushConstants constants{ drawable.transform };
+				vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
+			}
+		);
 		//end of depth prepass
 
 		vkCmdNextSubpass(activeFrame.commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
@@ -681,25 +520,19 @@ private:
 
 		vkCmdSetScissor(activeFrame.commandBuffer, 0, 1, &scissor);
 
-		//make a model view matrix for rendering the object
-		//camera position
+		this->scene->drawAll(
+			activeFrame.commandBuffer,
+			[this](VkCommandBuffer cmd, GLTFScene& scene, const GLTFDrawable& drawable) {
+				uint32_t dynamicOffset = scene.materials.getResourceOffset(drawable.material);
+				vkCmdBindDescriptorSets(
+					cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+					pipelineLayout, 2, 1, &scene.materialsDescriptorSet, 1, &dynamicOffset
+				);
 
-		offset = 0;
-		for (int i = 0; i < meshes.size(); ++i) {
-			int matIndex = meshMatIndices[i];
-			uint32_t dynamicOffset = materials.getResourceOffset(meshMatIndices[i]);
-			vkCmdBindDescriptorSets(
-				activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-				pipelineLayout, 2, 1, &materialsDescriptorSet, 1, &dynamicOffset
-			);
-
-			MeshPushConstants constants{ transforms[i] };
-			vkCmdPushConstants(activeFrame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
-
-			vkCmdBindVertexBuffers(activeFrame.commandBuffer, 0, 1, &meshes[i].vertexBuffer->buffer, &offset);
-			vkCmdBindIndexBuffer(activeFrame.commandBuffer, meshes[i].indexBuffer->buffer, 0, meshes[i].indexType);
-			vkCmdDrawIndexed(activeFrame.commandBuffer, meshes[i].numIndices, 1, 0, 0, 0);
-		}
+				MeshPushConstants constants{ drawable.transform };
+				vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
+			}
+		);
 
 		skyboxR.beginRender(activeFrame.commandBuffer, viewport, scissor);
 		SkyboxRenderer::CubemapPushConstants cpushConst{};
@@ -785,7 +618,7 @@ private:
 
 					auto start = std::chrono::high_resolution_clock::now();
 					// Reload the models
-					this->initMeshesMaterialsLights();
+					this->scene->loadScene(gltfModelSelector.loadedModelPath.c_str());
 					auto end = std::chrono::high_resolution_clock::now();
 					auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 					std::cout << "Loading new model took: " << duration.count() << " ms" << std::endl;
@@ -1282,7 +1115,7 @@ private:
 		VkDescriptorSetLayout layouts[3] = {
 			core->getLayout(frames.front().data.globalDS),
 			core->getLayout(frames.front().data.pointLightsDS),
-			core->getLayout(this->materialsDescriptorSet)
+			core->getLayout(this->scene->materialsDescriptorSet)
 		};
 		pipelineLayoutInfo.pSetLayouts = layouts;
 		pipelineLayoutInfo.pushConstantRangeCount = 1;

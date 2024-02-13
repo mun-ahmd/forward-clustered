@@ -58,9 +58,14 @@ public:
 		this->pointLightsBuffer.init(core, maxPointLightCount);
 	}
 
+	void clear() {
+		this->pointLightCount = 0;
+	}
+
 	void addPointLights(VulkanCore core, VkCommandPool pool, PointLightInfo* lights, size_t lightsCount) {
-		PointLightLength length;
+		PointLightLength length{};
 		length.length = this->pointLightCount + lightsCount;
+
 		this->pointLightsBuffer.updateWhole(core, pool, length, lights, lightsCount, this->pointLightCount);
 		this->pointLightCount += lightsCount;
 	}

@@ -70,14 +70,23 @@ struct DirectionalLightInfo {
 	float waste;
 };
 
+struct GLTFDrawable {
+	glm::vec3 position;
+	glm::quat rotation;
+	//plan is: only uniform scale is allowed (not implemented this for now)
+	glm::vec3 scale;
+
+	glm::mat4 transform;
+
+	uint32_t mesh;
+	uint32_t material;
+};
+
 struct ModelData {
-	struct {
-		//all of same length
-		std::vector<MeshData<Vertex3>> meshes;
-		std::vector<glm::mat4> transforms;
-		std::vector<int> matIndex;
-	} meshData;
+	std::vector<MeshData<Vertex3>> meshes;
 	std::vector<MaterialPBR> materials;
+	std::vector<GLTFDrawable> drawables;
+
 	std::vector<PointLightInfo> pointLights;
 	DirectionalLightInfo directionalLight;
 };

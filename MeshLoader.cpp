@@ -57,9 +57,10 @@ public:
 
 	ModelInterface() = default;
 	ModelInterface(cgltf_data* data) :
-		accessors(data->accessors, data->accessors_count), animations(data->animations, data->animations_count), buffers(data->buffers, data->buffers_count), bufferViews(data->buffer_views, data->buffer_views_count), materials(data->materials, data->materials_count), meshes(data->meshes, data->meshes_count), nodes(data->nodes, data->nodes_count), textures(data->textures, data->textures_count), images(data->images, data->images_count), skins(data->skins, data->skins_count), samplers(data->samplers, data->samplers_count), cameras(data->cameras, data->cameras_count), scenes(data->scenes, data->scenes_count), lights(data->lights, data->lights_count)
+		asset(data->asset), accessors(data->accessors, data->accessors_count), animations(data->animations, data->animations_count), buffers(data->buffers, data->buffers_count), bufferViews(data->buffer_views, data->buffer_views_count), materials(data->materials, data->materials_count), meshes(data->meshes, data->meshes_count), nodes(data->nodes, data->nodes_count), textures(data->textures, data->textures_count), images(data->images, data->images_count), skins(data->skins, data->skins_count), samplers(data->samplers, data->samplers_count), cameras(data->cameras, data->cameras_count), scenes(data->scenes, data->scenes_count), lights(data->lights, data->lights_count)
 	{};
 
+	cgltf_asset asset;
 	VectorInterface<cgltf_accessor> accessors;
 	VectorInterface<cgltf_animation> animations;
 	VectorInterface<cgltf_buffer> buffers;
@@ -476,9 +477,8 @@ std::optional<ModelData> loadGLTF(const char* filepath) {
 	//}
 	modelData.materials = loadMaterials(filepath, model);
 
-	modelData.meshData.meshes.reserve(loadedMeshes.size());
-	modelData.meshData.transforms.reserve(loadedMeshes.size());
-	modelData.meshData.matIndex.reserve(loadedMeshes.size());
+	modelData.meshes.reserve(loadedMeshes.size());
+	modelData.drawables.reserve(loadedMeshes.size());
 	modelData.pointLights.reserve(model.lights.size());
 
 	std::vector<cgltf_node*> nodesQueue;
@@ -486,7 +486,6 @@ std::optional<ModelData> loadGLTF(const char* filepath) {
 	for (int i = 0; i < data->scene->nodes_count; i++) {
 		nodesQueue.push_back(data->scene->nodes[i]);
 	}
-
 
 	while(!nodesQueue.empty()){
 		cgltf_node& node = *nodesQueue.back();
@@ -509,13 +508,25 @@ std::optional<ModelData> loadGLTF(const char* filepath) {
 			}
 		}
 		if (node.mesh != nullptr) {
+			glm::vec3 pos = getNodeGlobalTranslation(&node);
+			glm::quat rot = getNodeGlobalRotation(&node);
+			glm::vec3 scale = getNodeGlobalScale(&node);
+			//assert(scale.x == scale.y && scale.x == scale.z);
 			glm::mat4 transform = getNodeGlobalTransform(&node);
+
 			int mIndex = node.mesh - model.meshes.begin();
 			addedMeshes.insert(node.mesh);
 			for (auto& primitive : loadedMeshes[mIndex]) {
-				modelData.meshData.meshes.push_back(primitive.first);
-				modelData.meshData.matIndex.push_back(primitive.second);
-				modelData.meshData.transforms.push_back(transform);
+				GLTFDrawable drawable{};
+				drawable.transform = transform;
+				drawable.position = pos;
+				drawable.rotation = rot;
+				drawable.scale = scale;
+				drawable.material = primitive.second;
+				drawable.mesh = modelData.meshes.size();
+				modelData.meshes.push_back(primitive.first);
+
+				modelData.drawables.push_back(drawable);
 			}
 		}
 		
@@ -529,7 +540,7 @@ std::optional<ModelData> loadGLTF(const char* filepath) {
 	cgltf_free(data);
 
 	int tricount = 0, vertexcount = 0;
-	for (auto& mesh : modelData.meshData.meshes) {
+	for (auto& mesh : modelData.meshes) {
 		vertexcount += mesh.vertices.size();
 		tricount += mesh.indices.size() / 3;
 	}

@@ -182,13 +182,13 @@ public:
 
 	static uint32_t getMipLevelsForFull(VkExtent3D extent) {
 		// returns number of mip levels required for full coverage
-		return 1 + std::floor(
+		return 1 + static_cast<uint32_t>(std::floor(
 			std::log2(
 				std::max(
 					{ extent.width, extent.height, extent.depth }
 				)
 			)
-		);
+		));
 	}
 
 	static VkImageCreateInfo makeCreateInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent)

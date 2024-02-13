@@ -10,7 +10,7 @@ layout(location = 3) in flat vec3 cameraPos;
 layout(location = 0) out vec4 fragColor;
 
 struct PL{
-	vec4 color;
+	vec4 color_intensity;
 	vec4 position_radius;
 };
 
@@ -111,7 +111,7 @@ void main(){
 		
         vec3 H = normalize(V + L);
 
-        vec3 radiance = 0.5 * cLight.color.rgb * attenuation;
+        vec3 radiance = 0.5 * cLight.color_intensity.rgb * attenuation;
 
         // Cook-Torrance BRDF
         float NDF = DistributionGGX(N, H, roughness);   
