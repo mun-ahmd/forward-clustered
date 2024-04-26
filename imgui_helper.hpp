@@ -21,7 +21,7 @@ private:
 	VkDescriptorPool imguiPool;
 	VulkanCore core;
 public:
-	void init(VulkanCore core, VkRenderPass renderPass, VkCommandBuffer cmd, int subpass = 0){
+	void init(VulkanCore core, VkCommandBuffer cmd, VkFormat colorAttachmentFormat){
 		this->core = core;
 		//1: create descriptor pool for IMGUI
 		// the size of the pool is very oversize, but it's copied from imgui demo itself.
@@ -71,13 +71,16 @@ public:
 		init_info.Queue = core->graphicsQueue;
 		init_info.PipelineCache = this->imguiPipelineCache;
 		init_info.DescriptorPool = this->imguiPool;
-		init_info.Subpass = subpass;
+
+		init_info.UseDynamicRendering = true;
+		init_info.ColorAttachmentFormat = colorAttachmentFormat;
+
 		init_info.MinImageCount = 3;
 		init_info.ImageCount = 3;
 		init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 
 		//this initializes imgui for Vulkan
-		ImGui_ImplVulkan_Init(&init_info, renderPass);
+		ImGui_ImplVulkan_Init(&init_info, VK_NULL_HANDLE);
 
 		//execute a gpu command to upload imgui font textures
 

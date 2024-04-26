@@ -68,7 +68,7 @@ private:
 			iCreateInf,
 			VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT
 		);
-		vImage->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		vImage->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 
 		ImageLoadRequest imageLoadRequest{};
 		imageLoadRequest.desiredChannels = desiredChannels;
@@ -92,9 +92,9 @@ private:
 			region.imageOffset = { 0, 0, 0 };
 			region.imageExtent = vImage->extent;
 
-			vImage->transitionImageLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+			vImage->transitionImageLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 			vImage->copyFromBuffer(stagingBuf, region);
-			vImage->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			vImage->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 			};
 
 		imageLoader->request(imageLoadRequest);

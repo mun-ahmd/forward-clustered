@@ -140,7 +140,7 @@ void main(){
         Lo += (kD * albedo / PI + specular) * radiance * NdotL;  // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
     }
 
-    {
+    if(false){
         //apply directional light from sun
         vec3 L = normalize(sun.direction.xyz);		
         vec3 H = normalize(V + L);
@@ -172,7 +172,8 @@ void main(){
     vec3 color = ambient + Lo;
 
     // HDR tonemapping
-    color = color / (color + vec3(1.0));
+    float exposure = 0.01;
+    color = vec3(1.0) - exp(-color * exposure);
 
     // gamma correct
     color = pow(color, vec3(1.0/2.2)); 

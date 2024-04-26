@@ -197,11 +197,11 @@ private:
 		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
 
 		createRenderPass(swapChainFormat.format);
+		swapChain = SwapChain(core, swapChainFormat, swapPresentMode, chooseSwapExtent(swapCapabilities.capabilities), renderPass);
 		createGraphicsPipeline();
 		createDepthPrePassPipeline();
 		createClusterComputePipeline();
-		swapChain = SwapChain(core, swapChainFormat, swapPresentMode, chooseSwapExtent(swapCapabilities.capabilities), renderPass);
-		
+
 		camera = CamHandler(core->window);
 		if (Store::itemInStore("cameraMovementSpeed")) {
 			auto loadedBytes = Store::fetchBytes("cameraMovementSpeed");
@@ -210,11 +210,11 @@ private:
 			camera.movementSpeed() = loadedMovementSpeed;
 		}
 
-		skyboxR.initialize(imageLoader, renderPass, 1);
+		skyboxR.initialize(imageLoader, swapChain.swapChainImageFormat, swapChain.depthImage->format);
 		
 		this->scene->loadScene(gltfModelSelector.loadedModelPath.c_str());
 
-		imgui.init(core, this->renderPass, this->frames[0].commandBuffer, 1);		
+		imgui.init(core, this->frames[0].commandBuffer, swapChain.swapChainImageFormat);		
 	}
 	 
 
@@ -369,7 +369,8 @@ private:
 		transferFrameData.lightIndexBuffer.updateBase(core, commandPool, length);
 	}
 
-	void frameActions(Frame& activeFrame,
+	void frameActions(
+		Frame& activeFrame,
 		std::vector<VkFence>& additionalWaitFences,
 		std::vector<VkSemaphore>& additionalWaitSemaphores,
 		std::vector<VkPipelineStageFlags>& waitPipelineStageFlags) {
@@ -457,97 +458,196 @@ private:
 
 		auto activeSwapChainFramebuffer = swapChain.swapChainFramebuffers[activeFrame.imageIndex.value()];
 
-
-		VkRenderPassBeginInfo renderPassInfo{};
-		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		renderPassInfo.renderPass = renderPass;
-		renderPassInfo.framebuffer = activeSwapChainFramebuffer;
-
-		renderPassInfo.renderArea.offset = { 0, 0 };
-		renderPassInfo.renderArea.extent = swapChain.swapChainExtent;
-
-		std::array<VkClearValue, 2> clearValues{};
-		clearValues[0].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
-		clearValues[1].depthStencil = { 1.0f, 0 };
-		renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-		renderPassInfo.pClearValues = clearValues.data();
-
-		vkCmdBeginRenderPass(activeFrame.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-		//Start of depth prepass
-
-		vkCmdBindPipeline(activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, depthPrePass.pipe);
-		vkCmdBindDescriptorSets(activeFrame.commandBuffer,
-			VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-			0, 1, &activeFrame.data.globalDS,
-			0, nullptr
-		);
-
+		VkRect2D renderArea{};
 		VkViewport viewport{};
-		viewport.x = 0.0f;
-		viewport.y = 0.0f;
-		viewport.width = static_cast<float>(swapChain.swapChainExtent.width);
-		viewport.height = static_cast<float>(swapChain.swapChainExtent.height);
-		viewport.minDepth = 0.0f;
-		viewport.maxDepth = 1.0f;
-		vkCmdSetViewport(activeFrame.commandBuffer, 0, 1, &viewport);
-
 		VkRect2D scissor{};
-		scissor.offset = { 0, 0 };
-		scissor.extent = swapChain.swapChainExtent;
-		vkCmdSetScissor(activeFrame.commandBuffer, 0, 1, &scissor);
+		//initializing render areas
+		{
+			renderArea.offset = { 0, 0 };
+			renderArea.extent = swapChain.swapChainExtent;
 
-		this->scene->drawAll(
-			activeFrame.commandBuffer,
-			[this](VkCommandBuffer cmd, GLTFScene& scene, const GLTFDrawable& drawable) {
-				MeshPushConstants constants{ drawable.transform };
-				vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
-			}
+			viewport.x = 0.0f;
+			viewport.y = 0.0f;
+			viewport.width = static_cast<float>(swapChain.swapChainExtent.width);
+			viewport.height = static_cast<float>(swapChain.swapChainExtent.height);
+			viewport.minDepth = 0.0f;
+			viewport.maxDepth = 1.0f;
+
+			scissor.offset = { 0, 0 };
+			scissor.extent = swapChain.swapChainExtent;
+		}
+
+		VkClearValue depthClearValue{};
+		VkClearValue colorClearValue{};
+		//initializing clear colors
+		{
+			depthClearValue.depthStencil = { 1.0f, 0 };
+			colorClearValue.color = { {0.0f, 0.0f, 0.0f, 1.0f} };
+		}
+
+		//dynamic rendering depth pre pass
+		{
+			swapChain.depthImage->transitionImageFromLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+			VkRenderingAttachmentInfo depthAttachmentInfo{};
+			depthAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			depthAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+			depthAttachmentInfo.imageView = swapChain.depthImageView->view;
+			depthAttachmentInfo.clearValue = depthClearValue;
+
+			VkRenderingInfo renderInfo{};
+			renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+			renderInfo.pDepthAttachment = &depthAttachmentInfo;
+			renderInfo.pStencilAttachment = nullptr;
+			renderInfo.colorAttachmentCount = 0;
+			renderInfo.pColorAttachments = nullptr;
+			
+			renderInfo.layerCount = 1;
+			renderInfo.viewMask = 0;
+			renderInfo.renderArea = renderArea;
+			
+			renderInfo.pNext = nullptr;
+			
+			vkCmdBeginRendering(activeFrame.commandBuffer, &renderInfo);
+			//Start of depth prepass
+
+			vkCmdBindPipeline(activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, depthPrePass.pipe);
+			vkCmdBindDescriptorSets(activeFrame.commandBuffer,
+				VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+				0, 1, &activeFrame.data.globalDS,
+				0, nullptr
+			);
+
+			vkCmdSetViewport(activeFrame.commandBuffer, 0, 1, &viewport);
+			vkCmdSetScissor(activeFrame.commandBuffer, 0, 1, &scissor);
+
+			this->scene->drawAll(
+				activeFrame.commandBuffer,
+				[this](VkCommandBuffer cmd, GLTFScene& scene, const GLTFDrawable& drawable) {
+					MeshPushConstants constants{ drawable.transform };
+					vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
+				}
+			);
+			//end of depth prepass
+			vkCmdEndRendering(activeFrame.commandBuffer);
+		}
+
+		//dynamic rendering forward rendering pass
+		{
+			VkRenderingAttachmentInfo depthAttachmentInfo{};
+			depthAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+			depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
+			depthAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+			depthAttachmentInfo.imageView = swapChain.depthImageView->view;
+			depthAttachmentInfo.clearValue = depthClearValue;
+
+			Image::transitionImageLayout(
+				swapChain.swapChainImages[activeFrame.imageIndex.value()],
+				VK_IMAGE_ASPECT_COLOR_BIT,
+				VK_IMAGE_LAYOUT_UNDEFINED,
+				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+			);
+
+			VkRenderingAttachmentInfo colorAttachmentInfo{};
+			colorAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			colorAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			colorAttachmentInfo.imageView = swapChain.swapChainImageViews[activeFrame.imageIndex.value()];
+			colorAttachmentInfo.clearValue = colorClearValue;
+
+			VkRenderingInfo renderInfo{};
+			renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+			renderInfo.pDepthAttachment = &depthAttachmentInfo;
+			renderInfo.pStencilAttachment = nullptr;
+			renderInfo.colorAttachmentCount = 1;
+			renderInfo.pColorAttachments = &colorAttachmentInfo;
+
+			renderInfo.layerCount = 1;
+			renderInfo.viewMask = 0;
+			renderInfo.renderArea = renderArea;
+
+			renderInfo.pNext = nullptr;
+
+			vkCmdBeginRendering(activeFrame.commandBuffer, &renderInfo);
+			//color pass begin
+
+			vkCmdBindPipeline(activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+			VkDescriptorSet globalAndLightsSet[2] = { activeFrame.data.globalDS, activeFrame.data.pointLightsDS };
+			vkCmdBindDescriptorSets(activeFrame.commandBuffer,
+				VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+				0, 2, globalAndLightsSet,
+				0, nullptr
+			);
+
+			vkCmdSetViewport(activeFrame.commandBuffer, 0, 1, &viewport);
+			vkCmdSetScissor(activeFrame.commandBuffer, 0, 1, &scissor);
+
+			this->scene->drawAll(
+				activeFrame.commandBuffer,
+				[this](VkCommandBuffer cmd, GLTFScene& scene, const GLTFDrawable& drawable) {
+					uint32_t dynamicOffset = scene.materials.getResourceOffset(drawable.material);
+					vkCmdBindDescriptorSets(
+						cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						pipelineLayout, 2, 1, &scene.materialsDescriptorSet, 1, &dynamicOffset
+					);
+
+					MeshPushConstants constants{ drawable.transform };
+					vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
+				}
+			);
+
+			skyboxR.beginRender(activeFrame.commandBuffer, viewport, scissor);
+			SkyboxRenderer::CubemapPushConstants cpushConst{};
+			cpushConst.inverseProjView = glm::inverse(glm::mat4(glm::mat3(gDescValue.view))) * glm::inverse(gDescValue.proj);
+			//cpushConst.inverseProjView = gDescValue.proj * glm::mat4(glm::mat3(gDescValue.view));
+
+			skyboxR.endRender(
+				activeFrame.commandBuffer,
+				this->current_frame, //MAJOR todo change to actual frame index
+				cpushConst
+			);
+
+			vkCmdEndRendering(activeFrame.commandBuffer);
+		}
+
+		{
+			VkRenderingAttachmentInfo colorAttachmentInfo{};
+			colorAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+			colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			colorAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			colorAttachmentInfo.imageView = swapChain.swapChainImageViews[activeFrame.imageIndex.value()];
+
+			VkRenderingInfo renderInfo{};
+			renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+			renderInfo.pDepthAttachment = nullptr;
+			renderInfo.pStencilAttachment = nullptr;
+			renderInfo.colorAttachmentCount = 1;
+			renderInfo.pColorAttachments = &colorAttachmentInfo;
+
+			renderInfo.layerCount = 1;
+			renderInfo.viewMask = 0;
+			renderInfo.renderArea = renderArea;
+
+			renderInfo.pNext = nullptr;
+
+			vkCmdBeginRendering(activeFrame.commandBuffer, &renderInfo);
+			//render ui
+			imgui.drawWithinRenderPass(activeFrame.commandBuffer);
+			
+			vkCmdEndRendering(activeFrame.commandBuffer);
+		}
+
+		Image::transitionImageLayout(
+			swapChain.swapChainImages[activeFrame.imageIndex.value()],
+			VK_IMAGE_ASPECT_COLOR_BIT,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
 		);
-		//end of depth prepass
-
-		vkCmdNextSubpass(activeFrame.commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
-
-		vkCmdBindPipeline(activeFrame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
-
-		VkDescriptorSet globalAndLightsSet[2] = { activeFrame.data.globalDS, activeFrame.data.pointLightsDS };
-		vkCmdBindDescriptorSets(activeFrame.commandBuffer,
-			VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-			0, 2, globalAndLightsSet,
-			0, nullptr
-		);
-
-		vkCmdSetViewport(activeFrame.commandBuffer, 0, 1, &viewport);
-
-		vkCmdSetScissor(activeFrame.commandBuffer, 0, 1, &scissor);
-
-		this->scene->drawAll(
-			activeFrame.commandBuffer,
-			[this](VkCommandBuffer cmd, GLTFScene& scene, const GLTFDrawable& drawable) {
-				uint32_t dynamicOffset = scene.materials.getResourceOffset(drawable.material);
-				vkCmdBindDescriptorSets(
-					cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-					pipelineLayout, 2, 1, &scene.materialsDescriptorSet, 1, &dynamicOffset
-				);
-
-				MeshPushConstants constants{ drawable.transform };
-				vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
-			}
-		);
-
-		skyboxR.beginRender(activeFrame.commandBuffer, viewport, scissor);
-		SkyboxRenderer::CubemapPushConstants cpushConst{};
-		cpushConst.inverseProjView = glm::inverse(glm::mat4(glm::mat3(gDescValue.view))) * glm::inverse(gDescValue.proj);
-		//cpushConst.inverseProjView = gDescValue.proj * glm::mat4(glm::mat3(gDescValue.view));
-
-		skyboxR.endRender(
-			activeFrame.commandBuffer,
-			this->current_frame, //MAJOR todo change to actual frame index
-			cpushConst
-		);
-
-		imgui.drawWithinRenderPass(activeFrame.commandBuffer);
-
-		vkCmdEndRenderPass(activeFrame.commandBuffer);
 
 		if (vkEndCommandBuffer(activeFrame.commandBuffer) != VK_SUCCESS) {
 			throw std::runtime_error("failed to record command buffer!");
@@ -726,7 +826,7 @@ private:
 			iCreateInf,
 			VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT
 		);
-		vImage->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		vImage->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 
 		ImageLoadRequest imageLoadRequest{};
 		imageLoadRequest.desiredChannels = desiredChannels;
@@ -750,9 +850,9 @@ private:
 			region.imageOffset = { 0, 0, 0 };
 			region.imageExtent = vImage->extent;
 
-			vImage->transitionImageLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+			vImage->transitionImageLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 			vImage->copyFromBuffer(stagingBuf, region);
-			vImage->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			vImage->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 		};
 
 		imageLoader->request(imageLoadRequest);
@@ -897,7 +997,14 @@ private:
 
 		this->depthPrePass.layout = core->createPipelineLayout(pipelineLayoutInfo);
 
+		VkPipelineRenderingCreateInfo renderingCreateInfo{};
+		renderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+		renderingCreateInfo.colorAttachmentCount = 0;
+		renderingCreateInfo.depthAttachmentFormat = swapChain.depthImage->format;
+
 		VkGraphicsPipelineCreateInfo pipelineInfo{};
+		pipelineInfo.pNext = &renderingCreateInfo;
+
 		pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
 		pipelineInfo.stageCount = 2;
 		pipelineInfo.pStages = shaderStages;
@@ -914,7 +1021,7 @@ private:
 
 		pipelineInfo.layout = this->depthPrePass.layout;
 
-		pipelineInfo.renderPass = this->renderPass;
+		pipelineInfo.renderPass = VK_NULL_HANDLE;
 		pipelineInfo.subpass = 0;
 		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
 		pipelineInfo.basePipelineIndex = -1; // Optional
@@ -1123,7 +1230,15 @@ private:
 
 		pipelineLayout = core->createPipelineLayout(pipelineLayoutInfo);
 
+		VkPipelineRenderingCreateInfo renderingCreateInfo{};
+		renderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+		renderingCreateInfo.colorAttachmentCount = 1;
+		renderingCreateInfo.pColorAttachmentFormats = &swapChain.swapChainImageFormat;
+		renderingCreateInfo.depthAttachmentFormat = swapChain.depthImage->format;
+
 		VkGraphicsPipelineCreateInfo pipelineInfo{};
+		pipelineInfo.pNext = &renderingCreateInfo;
+
 		pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
 		pipelineInfo.stageCount = 2;
 		pipelineInfo.pStages = shaderStages;
@@ -1139,7 +1254,7 @@ private:
 
 		pipelineInfo.layout = pipelineLayout;
 
-		pipelineInfo.renderPass = renderPass;
+		pipelineInfo.renderPass = VK_NULL_HANDLE;
 		pipelineInfo.subpass = 1;
 		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
 		pipelineInfo.basePipelineIndex = -1; // Optional

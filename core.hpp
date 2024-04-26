@@ -19,10 +19,11 @@ const std::vector<const char*> validationLayers = {
 };
 
 const std::vector<const char*> deviceExtensions = {
-	VK_KHR_SWAPCHAIN_EXTENSION_NAME
+	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+	//VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME	//dynamic rendering is part of vulkan 1.3
 };
 
-#define APP_VK_API_VERSION VK_API_VERSION_1_2
+#define APP_VK_API_VERSION VK_API_VERSION_1_3
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -76,21 +77,33 @@ public:
 
 class VulkanCore_T {
 private:
-	bool checkDeviceIndexingFeatureSupport(VkPhysicalDevice device) {
+	bool checkDeviceFeatureSupport(VkPhysicalDevice device) {
+		//checking for:
+		//	anisotropic sampling
+		//	partially bound descriptors
+		//	runtime descriptor array
+		//	non uniform indexing
+		//	dynamic rendering
+
 		VkPhysicalDeviceDescriptorIndexingFeatures indexingFeatures{};
 		indexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
-		indexingFeatures.pNext = NULL;
+		indexingFeatures.pNext = nullptr;
+
+		VkPhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeatures{};
+		dynamicRenderingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
+		dynamicRenderingFeatures.pNext = &indexingFeatures;
 		
 		VkPhysicalDeviceFeatures2 deviceFeatures{};
 		deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-		deviceFeatures.pNext = &indexingFeatures;
+		deviceFeatures.pNext = &dynamicRenderingFeatures;
 		vkGetPhysicalDeviceFeatures2(device, &deviceFeatures);
 
 		if (
 				deviceFeatures.features.samplerAnisotropy &&
 				indexingFeatures.descriptorBindingPartiallyBound &&
 				indexingFeatures.runtimeDescriptorArray &&
-				indexingFeatures.shaderSampledImageArrayNonUniformIndexing
+				indexingFeatures.shaderSampledImageArrayNonUniformIndexing &&
+				dynamicRenderingFeatures.dynamicRendering
 			)
 		{
 			// all set to use unbound arrays of textures
@@ -118,7 +131,7 @@ private:
 		QueueFamilyIndices indices = findQueueFamilies(device);
 
 		bool extensionsSupported = checkDeviceExtensionSupport(device);
-		bool indexingFeatureSupported = checkDeviceIndexingFeatureSupport(device);
+		bool indexingFeatureSupported = checkDeviceFeatureSupport(device);
 
 		bool swapChainAdequate = false;
 		if (extensionsSupported && indexingFeatureSupported) {
@@ -175,16 +188,20 @@ private:
 		deviceFeatures.samplerAnisotropy = VK_TRUE;	
 
 		VkPhysicalDeviceDescriptorIndexingFeatures indexingFeatures{};
-
 		indexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
 		indexingFeatures.pNext = nullptr;
 		indexingFeatures.descriptorBindingPartiallyBound = VK_TRUE;
 		indexingFeatures.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
 		indexingFeatures.runtimeDescriptorArray = VK_TRUE;
 
+		VkPhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeatures{};
+		dynamicRenderingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
+		dynamicRenderingFeatures.dynamicRendering = VK_TRUE;
+		dynamicRenderingFeatures.pNext = &indexingFeatures;
+
 		VkDeviceCreateInfo createInfo{};
 		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-		createInfo.pNext = &indexingFeatures;
+		createInfo.pNext = &dynamicRenderingFeatures;
 
 		createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 		createInfo.pQueueCreateInfos = queueCreateInfos.data();
@@ -329,17 +346,20 @@ private:
 	}
 
 	void loadExtensionFunctions() {
-		VkDebugUtils.CmdBeginDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkCmdBeginDebugUtilsLabelEXT);
-		VkDebugUtils.CmdEndDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkCmdEndDebugUtilsLabelEXT);
-		VkDebugUtils.CmdInsertDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkCmdInsertDebugUtilsLabelEXT);
-		VkDebugUtils.CreateDebugUtilsMessengerEXT = loadVulkanInstanceFunction(instance, vkCreateDebugUtilsMessengerEXT);
-		VkDebugUtils.DestroyDebugUtilsMessengerEXT = loadVulkanInstanceFunction(instance, vkDestroyDebugUtilsMessengerEXT);
-		VkDebugUtils.QueueBeginDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkQueueBeginDebugUtilsLabelEXT);
-		VkDebugUtils.QueueEndDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkQueueEndDebugUtilsLabelEXT);
-		VkDebugUtils.QueueInsertDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkQueueInsertDebugUtilsLabelEXT);
-		VkDebugUtils.SetDebugUtilsObjectNameEXT = loadVulkanInstanceFunction(instance, vkSetDebugUtilsObjectNameEXT);
-		VkDebugUtils.SetDebugUtilsObjectTagEXT = loadVulkanInstanceFunction(instance, vkSetDebugUtilsObjectTagEXT);
-		VkDebugUtils.SubmitDebugUtilsMessageEXT = loadVulkanInstanceFunction(instance, vkSubmitDebugUtilsMessageEXT);
+		//load debug utils (instance) extension functions
+		{
+			VkDebugUtils.CmdBeginDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkCmdBeginDebugUtilsLabelEXT);
+			VkDebugUtils.CmdEndDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkCmdEndDebugUtilsLabelEXT);
+			VkDebugUtils.CmdInsertDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkCmdInsertDebugUtilsLabelEXT);
+			VkDebugUtils.CreateDebugUtilsMessengerEXT = loadVulkanInstanceFunction(instance, vkCreateDebugUtilsMessengerEXT);
+			VkDebugUtils.DestroyDebugUtilsMessengerEXT = loadVulkanInstanceFunction(instance, vkDestroyDebugUtilsMessengerEXT);
+			VkDebugUtils.QueueBeginDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkQueueBeginDebugUtilsLabelEXT);
+			VkDebugUtils.QueueEndDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkQueueEndDebugUtilsLabelEXT);
+			VkDebugUtils.QueueInsertDebugUtilsLabelEXT = loadVulkanInstanceFunction(instance, vkQueueInsertDebugUtilsLabelEXT);
+			VkDebugUtils.SetDebugUtilsObjectNameEXT = loadVulkanInstanceFunction(instance, vkSetDebugUtilsObjectNameEXT);
+			VkDebugUtils.SetDebugUtilsObjectTagEXT = loadVulkanInstanceFunction(instance, vkSetDebugUtilsObjectTagEXT);
+			VkDebugUtils.SubmitDebugUtilsMessageEXT = loadVulkanInstanceFunction(instance, vkSubmitDebugUtilsMessageEXT);
+		}
 	}
 
 	bool checkValidationLayerSupport() {
@@ -589,6 +609,7 @@ public:
 		}
 		return semaphore;
 	}
+
 	VkFence createFence(const VkFenceCreateInfo& info) {
 		VkFence fence;
 		if (vkCreateFence(device, &info, nullptr, &fence) != VK_SUCCESS) {

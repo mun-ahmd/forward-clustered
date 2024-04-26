@@ -188,6 +188,7 @@
     <ClInclude Include="imgui_helper.hpp" />
     <ClInclude Include="light.hpp" />
     <ClInclude Include="mesh.hpp" />
+    <ClInclude Include="sdfGenerator.hpp" />
     <ClInclude Include="skybox.hpp" />
     <ClInclude Include="storage_helper.hpp" />
     <ClInclude Include="swapchain.hpp" />

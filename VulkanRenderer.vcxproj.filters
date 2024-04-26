@@ -37,6 +37,9 @@
     <Filter Include="Header Files\rendering">
       <UniqueIdentifier>{df8f72f4-1cf3-41b4-867c-c50da7dd6933}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\SDF">
+      <UniqueIdentifier>{5c2eba33-dfc0-48f9-9118-8b0ee2cbd2dc}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -163,6 +166,9 @@
     </ClInclude>
     <ClInclude Include="GLTFScene.hpp">
       <Filter>Header Files\rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="sdfGenerator.hpp">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

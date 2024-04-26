@@ -26,7 +26,7 @@ private:
 		VkDescriptorSet descriptor;
 	} perFrame[MAX_FRAMES_IN_FLIGHT];
 
-	void createPipeline(VkRenderPass renderPass, uint32_t subpassIndex) {
+	void createPipeline(VkFormat colorAttachmentFormat, VkFormat depthAttachmentFormat) {
 		//pipeline creation
 		auto core = VulkanUtils::utils().getCore();
 
@@ -129,7 +129,15 @@ private:
 
 		this->draw.layout = core->createPipelineLayout(pipelineLayoutInfo);
 
+		VkPipelineRenderingCreateInfo renderingCreateInfo{};
+		renderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+		renderingCreateInfo.colorAttachmentCount = 1;
+		renderingCreateInfo.pColorAttachmentFormats = &colorAttachmentFormat;
+		renderingCreateInfo.depthAttachmentFormat = depthAttachmentFormat;
+
 		VkGraphicsPipelineCreateInfo pipelineInfo{};
+		pipelineInfo.pNext = &renderingCreateInfo;
+
 		pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
 		pipelineInfo.stageCount = 2;
 		pipelineInfo.pStages = shaderStages;
@@ -146,8 +154,7 @@ private:
 
 		pipelineInfo.layout = this->draw.layout;
 
-		pipelineInfo.renderPass = renderPass;
-		pipelineInfo.subpass = subpassIndex;
+		pipelineInfo.renderPass = VK_NULL_HANDLE;
 		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
 		pipelineInfo.basePipelineIndex = -1; // Optional
 
@@ -186,7 +193,7 @@ private:
 			VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT
 		);
 
-		image->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		image->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 		this->cubemap = getImageView(
 			image,
 			VK_FORMAT_R32G32B32A32_SFLOAT,
@@ -208,9 +215,9 @@ private:
 			region.imageOffset = { 0, 0, 0 };
 			region.imageExtent = image->extent;
 
-			image->transitionImageLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+			image->transitionImageLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 			image->copyFromBuffer(staging, region);
-			image->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			image->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 		};
 
 		iLoader->request(req);
@@ -261,11 +268,11 @@ private:
 	}
 
 public:
-	void initialize(RC<AsyncImageLoader> iLoader, VkRenderPass renderPass, uint32_t subpassIndex) {
+	void initialize(RC<AsyncImageLoader> iLoader, VkFormat colorAttachmentFormat, VkFormat depthAttachmentFormat) {
 		this->createCubemap(iLoader);
 		this->createSampler();
 		this->createDescriptorSet();
-		this->createPipeline(renderPass, subpassIndex);
+		this->createPipeline(colorAttachmentFormat, depthAttachmentFormat);
 	}
 
 	void frameUpdate() {
