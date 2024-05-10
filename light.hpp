@@ -73,7 +73,7 @@ public:
 	void setSunLight(SunLightType sunInfo, uint32_t frameIndex) {
 		//sunlight buffer is mapped as it may change frequently
 		memcpy(
-			this->sunLightBuffers[frameIndex]->allocation->GetMappedData(),
+			this->sunLightBuffers[frameIndex]->getMappedData(),
 			&sunInfo,
 			sizeof(sunInfo)
 		);

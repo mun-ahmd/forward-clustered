@@ -22,6 +22,12 @@ public:
 
 	inline static int activeAllocatedCount = 0;
 
+	void* getMappedData() {
+		auto core = VulkanUtils::utils().getCore();
+		vmaGetAllocationInfo(core->allocator, allocation, &allocattedInfo);
+		return allocattedInfo.pMappedData;
+	}
+
 	static std::shared_ptr<Buffer> create(VulkanCore core,
 		VkDeviceSize size,
 		VkBufferUsageFlags usage, VmaAllocationCreateFlagBits vmaFlags,

@@ -154,6 +154,8 @@
   <ItemGroup>
     <ClCompile Include="cameraObj.cpp" />
     <ClCompile Include="fast_obj.c" />
+    <ClInclude Include="depthOnlyRenderer.hpp" />
+    <ClInclude Include="forwardRenderer.hpp" />
     <ClCompile Include="ImageLoader.cpp" />
     <ClCompile Include="Imgui\imgui.cpp" />
     <ClCompile Include="Imgui\imgui_demo.cpp" />
@@ -188,6 +190,10 @@
     <ClInclude Include="imgui_helper.hpp" />
     <ClInclude Include="light.hpp" />
     <ClInclude Include="mesh.hpp" />
+    <ClInclude Include="postProcessing.hpp" />
+    <ClInclude Include="rendererBase.hpp" />
+    <ClInclude Include="rendering.hpp" />
+    <ClInclude Include="screenSpaceAO.hpp" />
     <ClInclude Include="sdfGenerator.hpp" />
     <ClInclude Include="skybox.hpp" />
     <ClInclude Include="storage_helper.hpp" />

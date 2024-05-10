@@ -5,6 +5,7 @@
 #include <optional>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 template<typename T>
 struct MeshData {

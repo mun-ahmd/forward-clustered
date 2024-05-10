@@ -90,7 +90,7 @@ private:
 					}
 
 					memcpy(
-						staging->allocation->GetMappedData(),
+						staging->getMappedData(),
 						imageData->getData(),
 						imageData->getSizeInBytes()
 					);
@@ -110,7 +110,7 @@ private:
 					}
 
 					memcpy(
-						staging->allocation->GetMappedData(),
+						staging->getMappedData(),
 						imageData->getData(),
 						imageData->getSizeInBytes()
 					);

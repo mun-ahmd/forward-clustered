@@ -193,7 +193,7 @@ private:
 			VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT
 		);
 
-		image->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+		image->transitionImageToLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 		this->cubemap = getImageView(
 			image,
 			VK_FORMAT_R32G32B32A32_SFLOAT,
@@ -215,9 +215,9 @@ private:
 			region.imageOffset = { 0, 0, 0 };
 			region.imageExtent = image->extent;
 
-			image->transitionImageLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+			image->transitionImageToLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 			image->copyFromBuffer(staging, region);
-			image->transitionImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+			image->transitionImageToLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 		};
 
 		iLoader->request(req);
@@ -309,7 +309,8 @@ public:
 			sizeof(inverseProjView),
 			&inverseProjView
 		);
-		vkCmdDraw(commandBuffer, 36, 1, 0, 0);
+		//TODO check
+		vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 	}
 
 };

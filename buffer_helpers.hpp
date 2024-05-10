@@ -41,7 +41,7 @@ public:
 			(VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT),
 			0
 		);
-		stagingBufMap = stagingBuf->allocation->GetMappedData();
+		stagingBufMap = stagingBuf->getMappedData();
 	}
 
 	size_t getResourceOffset() {
@@ -123,7 +123,7 @@ public:
 			(VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT),
 			0
 		);
-		auto stagingBufMap = stagingBuf->allocation->GetMappedData();
+		auto stagingBufMap = stagingBuf->getMappedData();
 		memcpy(stagingBufMap, &baseInfo, sizeof(BaseInfo));
 		memcpy(reinterpret_cast<char*>(stagingBufMap) + sizeof(BaseInfo), arrInfo, sizeof(ArrayInfo) * arrLen);
 

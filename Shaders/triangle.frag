@@ -8,6 +8,7 @@ layout(location = 3) in flat vec3 cameraPos;
 
 
 layout(location = 0) out vec4 fragColor;
+layout(location = 1) out vec4 normalCompressed;
 
 struct PL{
 	vec4 color_intensity;
@@ -91,6 +92,8 @@ void main(){
     float ao        = 0.3;
 
     vec3 N = normalize(fragNorm);
+    normalCompressed.rgb = N.xyz;
+
     vec3 V = normalize(cameraPos - fragPos);
 
     // calculate reflectance at normal incidence; if dia-electric (like plastic) use F0 
@@ -140,7 +143,7 @@ void main(){
         Lo += (kD * albedo / PI + specular) * radiance * NdotL;  // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
     }
 
-    if(false){
+    if(true){
         //apply directional light from sun
         vec3 L = normalize(sun.direction.xyz);		
         vec3 H = normalize(V + L);
@@ -170,13 +173,6 @@ void main(){
     vec3 ambient = vec3(0.02) * ao;
     
     vec3 color = ambient + Lo;
-
-    // HDR tonemapping
-    float exposure = 0.01;
-    color = vec3(1.0) - exp(-color * exposure);
-
-    // gamma correct
-    color = pow(color, vec3(1.0/2.2)); 
 
     fragColor = vec4(color, 1.0);
 
