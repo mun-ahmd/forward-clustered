@@ -19,8 +19,8 @@
 
 #include <glm/gtx/string_cast.hpp>
 
-#include "forwardRenderer.hpp"
-#include "postProcessing.hpp"
+#include "rendering.hpp"
+
 #include "vulkan_utils.hpp"
 #include "MeshLoader.hpp"
 #include "ImageLoader.hpp"
@@ -39,10 +39,6 @@
 
 constexpr int lightCount = 10;
 
-struct MeshPushConstants {
-	glm::mat4 transform;
-};
-
 struct AABB {
 	glm::vec4 minPos;
 	glm::vec4 maxPos;
@@ -51,36 +47,6 @@ struct AABB {
 struct ClusterLights {
 	int offset;
 	int count;
-};
-
-struct globalDescriptor {
-	glm::mat4 proj;
-	glm::mat4 view;
-	glm::mat4 projView;
-	glm::vec4 cameraPos_time;
-	glm::vec4 fovY_aspectRatio_zNear_zFar;
-
-	void updateValues(
-		glm::mat4 proj,
-		float fovY,
-		float aspectRatio,
-		float zNear,
-		float zFar,
-		glm::mat4 view,
-		glm::vec3 cameraPos,
-		float time_seconds
-	) {
-		this->proj = proj;
-		this->view = view;
-		this->projView = proj * view;
-		this->fovY_aspectRatio_zNear_zFar = { fovY, aspectRatio, zNear, zFar };
-		this->cameraPos_time = glm::vec4(cameraPos, time_seconds);
-	}
-
-	void setView(glm::mat4& view) {
-		this->view = view;
-		this->projView = proj * view;
-	}
 };
 
 struct FrameData {
@@ -154,8 +120,7 @@ private:
 	float nearPlane = 0.1f;
 	float farPlane = 200.f;
 
-	RC<ForwardRenderer> renderer;
-	std::unique_ptr<PostProcessRenderer> postProcessor;
+	GraphicsRenderer renderer;
 	std::unique_ptr<SkyboxRenderer> skyboxR;
 
 	RC<AsyncImageLoader> imageLoader;
@@ -220,8 +185,8 @@ private:
 		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
 
 		swapChain = SwapChain(core, swapChainFormat, swapPresentMode, chooseSwapExtent(swapCapabilities.capabilities));
-		createDepthPrePassPipeline();
-		createClusterComputePipeline();
+		//createDepthPrePassPipeline();
+		//createClusterComputePipeline();
 
 		camera = CamHandler(core->window);
 		if (Store::itemInStore("cameraMovementSpeed")) {
@@ -236,45 +201,8 @@ private:
 		VkRect2D renderRegion{};
 		renderRegion.offset = { 0, 0 };
 		renderRegion.extent = swapChain.swapChainExtent;
-		
-		VkPipelineLayout forwardRendererLayout;
-		{
-			//setup push constants
-			VkPushConstantRange push_constant;
-			push_constant.offset = 0;
-			push_constant.size = sizeof(MeshPushConstants);
-			push_constant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
-			VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-			pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-
-			std::array<VkDescriptorSetLayout, 3> layouts = {
-				core->getLayout(frames[0].data.globalDS),
-				core->getLayout(frames[0].data.pointLightsDS),
-				core->getLayout(scene->materialsDescriptorSet)
-			};
-			pipelineLayoutInfo.setLayoutCount = layouts.size();
-			pipelineLayoutInfo.pSetLayouts = layouts.data();
-
-			pipelineLayoutInfo.pushConstantRangeCount = 1;
-			pipelineLayoutInfo.pPushConstantRanges = &push_constant;
-
-			forwardRendererLayout = core->createPipelineLayout(pipelineLayoutInfo);
-		}
-
-		this->renderer = ForwardRenderer::create(
-			core,
-			renderRegion,
-			forwardRendererLayout
-		);
-
-		postProcessor = std::make_unique<PostProcessRenderer>();
-		postProcessor->init(core, renderRegion);
-		postProcessor->setInputTextures(
-			renderer->colorOutputImage,
-			renderer->depthImage,
-			renderer->gNormal
-		);
+		renderer.init(core, renderRegion, scene);
 
 		skyboxR = std::make_unique<SkyboxRenderer>();
 		skyboxR->initialize(imageLoader, swapChain.swapChainImageFormat, swapChain.depthImage->format);
@@ -289,38 +217,6 @@ private:
 	globalDescriptor gDescValue{};
 
 	void frameInitializer(FrameData* frame) {
-		frame->globalDescBuffer = Buffer::create(core, sizeof(globalDescriptor), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, (VmaAllocationCreateFlagBits)(VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT), 0);
-		frame->globalDescBufferMappedPointer = frame->globalDescBuffer->allocation->GetMappedData();
-
-		{
-			VkDescriptorSetLayoutBinding binding{};
-			binding.descriptorCount = 1;
-			binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-			binding.stageFlags = VK_SHADER_STAGE_ALL;
-			binding.binding = 0;
-			frame->globalDS = core->createDescriptorSet({ binding });
-
-			VkWriteDescriptorSet write{};
-			write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			write.descriptorCount = 1;
-			write.descriptorType = binding.descriptorType;
-			write.dstSet = frame->globalDS;
-			write.dstBinding = binding.binding;
-			write.pNext = nullptr;
-			VkDescriptorBufferInfo info{};
-			info.buffer = frame->globalDescBuffer->buffer;
-			info.offset = 0;
-			info.range = sizeof(globalDescriptor);
-			write.pBufferInfo = &info;
-
-			vkUpdateDescriptorSets(core->device, 1, &write, 0, nullptr);
-		}
-
-		frame->pointLightsDS = this->scene->lightsBuffer.createDescriptorSet(
-			current_frame,
-			core,
-			VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT
-		);
 
 		glm::uvec3 clusterSize = glm::uvec3(32, 32, 4);
 		//frame->clustersBuffer.init(core, sizeof(AABB) * clusterSize.x * clusterSize.y * clusterSize.z);
@@ -596,59 +492,7 @@ private:
 		//	vkCmdEndRendering(activeFrame.commandBuffer);
 		//}
 
-		{
-			renderer->colorOutputImage->cmdTransitionImageLayout(
-				activeFrame.commandBuffer,
-				VK_IMAGE_LAYOUT_UNDEFINED,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_IMAGE_ASPECT_COLOR_BIT
-			);
-			renderer->depthImage->cmdTransitionImageLayout(
-				activeFrame.commandBuffer,
-				VK_IMAGE_LAYOUT_UNDEFINED,
-				VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-				VK_IMAGE_ASPECT_DEPTH_BIT
-			);
-			renderer->gNormal->cmdTransitionImageLayout(
-				activeFrame.commandBuffer,
-				VK_IMAGE_LAYOUT_UNDEFINED,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_IMAGE_ASPECT_COLOR_BIT
-			);
-		}
-
-		forwardRenderScene(renderer, scene, activeFrame.commandBuffer, activeFrame.data.globalDS, activeFrame.data.pointLightsDS, scene->materialsDescriptorSet);
-
-		//postprocessing
-		{
-			renderer->colorOutputImage->cmdTransitionImageLayout(
-				activeFrame.commandBuffer,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-				VK_IMAGE_ASPECT_COLOR_BIT
-			);
-			renderer->depthImage->cmdTransitionImageLayout(
-				activeFrame.commandBuffer,
-				VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-				VK_IMAGE_ASPECT_DEPTH_BIT
-			);
-			renderer->gNormal->cmdTransitionImageLayout(
-				activeFrame.commandBuffer,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-				VK_IMAGE_ASPECT_COLOR_BIT
-			);
-
-			postProcessor->colorOutputImage->cmdTransitionImageLayout(
-				activeFrame.commandBuffer,
-				VK_IMAGE_LAYOUT_UNDEFINED,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_IMAGE_ASPECT_COLOR_BIT
-			);
-
-			postProcessor->render(activeFrame.commandBuffer);
-		}
+		
 		//dynamic rendering forward rendering pass
 		//color pass 
 		//todo render normals and ambient
@@ -682,9 +526,11 @@ private:
 		//	vkCmdEndRendering(activeFrame.commandBuffer);
 		//}
 
+		renderer.render(activeFrame.commandBuffer, current_frame);
 		{
 			//copy result to swapchain image
-			postProcessor->colorOutputImage->cmdTransitionImageLayout(
+			RC<Image> colorOutputImage = renderer.getResultImage();
+			colorOutputImage->cmdTransitionImageLayout(
 				activeFrame.commandBuffer,
 				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -703,8 +549,8 @@ private:
 			imageBlit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 			imageBlit.srcSubresource.layerCount = 1;
 			imageBlit.srcSubresource.mipLevel = 0;
-			imageBlit.srcOffsets[1].x = renderer->colorOutputImage->extent.width;
-			imageBlit.srcOffsets[1].y = renderer->colorOutputImage->extent.height;
+			imageBlit.srcOffsets[1].x = colorOutputImage->extent.width;
+			imageBlit.srcOffsets[1].y = colorOutputImage->extent.height;
 			imageBlit.srcOffsets[1].z = 1;
 
 			// Destination
@@ -717,7 +563,7 @@ private:
 
 			vkCmdBlitImage(
 				activeFrame.commandBuffer,
-				postProcessor->colorOutputImage->image,
+				colorOutputImage->image,
 				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				swapChain.swapChainImages[activeFrame.imageIndex.value()],
 				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,

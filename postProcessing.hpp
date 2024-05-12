@@ -228,6 +228,10 @@ public:
 		this->initPipeline(layout);
 	}
 
+	VkPipelineLayout getPipelineLayout() {
+		return pipeline.layout;
+	}
+
 	void beginRender(VkCommandBuffer commandBuffer)
 	{
 		std::array<VkRenderingAttachmentInfo, 1> colorAttachmentInfos{};
