@@ -40,6 +40,9 @@
     <Filter Include="Header Files\SDF">
       <UniqueIdentifier>{5c2eba33-dfc0-48f9-9118-8b0ee2cbd2dc}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\Rendering Server">
+      <UniqueIdentifier>{d8e52f70-af4f-4a7e-b769-92192d12aae5}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -77,6 +80,12 @@
     </ClCompile>
     <ClCompile Include="ImageLoader.cpp">
       <Filter>Source Files\src</Filter>
+    </ClCompile>
+    <ClCompile Include="RenderingServer.cpp">
+      <Filter>Header Files\Rendering Server</Filter>
+    </ClCompile>
+    <ClCompile Include="EnumsFromStrings.cpp">
+      <Filter>Header Files\Rendering Server</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -176,9 +185,6 @@
     <ClInclude Include="postProcessing.hpp">
       <Filter>Header Files\rendering</Filter>
     </ClInclude>
-    <ClInclude Include="screenSpaceAO.hpp">
-      <Filter>Header Files\rendering</Filter>
-    </ClInclude>
     <ClInclude Include="depthOnlyRenderer.hpp">
       <Filter>Header Files\rendering</Filter>
     </ClInclude>
@@ -186,6 +192,21 @@
       <Filter>Header Files\rendering</Filter>
     </ClInclude>
     <ClInclude Include="rendering.hpp">
+      <Filter>Header Files\rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderingCreateInfo.hpp">
+      <Filter>Header Files\Rendering Server</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderingResources.hpp">
+      <Filter>Header Files\Rendering Server</Filter>
+    </ClInclude>
+    <ClInclude Include="EnumsFromStrings.hpp">
+      <Filter>Header Files\Rendering Server</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderingServer.hpp">
+      <Filter>Header Files\Rendering Server</Filter>
+    </ClInclude>
+    <ClInclude Include="screenSpaceAO.hpp">
       <Filter>Header Files\rendering</Filter>
     </ClInclude>
   </ItemGroup>

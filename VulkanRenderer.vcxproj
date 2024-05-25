@@ -153,8 +153,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="cameraObj.cpp" />
+    <ClCompile Include="EnumsFromStrings.cpp" />
     <ClCompile Include="fast_obj.c" />
+    <ClCompile Include="RenderingServer.cpp" />
     <ClInclude Include="depthOnlyRenderer.hpp" />
+    <ClInclude Include="EnumsFromStrings.hpp" />
     <ClInclude Include="forwardRenderer.hpp" />
     <ClCompile Include="ImageLoader.cpp" />
     <ClCompile Include="Imgui\imgui.cpp" />
@@ -193,6 +196,9 @@
     <ClInclude Include="postProcessing.hpp" />
     <ClInclude Include="rendererBase.hpp" />
     <ClInclude Include="rendering.hpp" />
+    <ClInclude Include="RenderingCreateInfo.hpp" />
+    <ClInclude Include="RenderingResources.hpp" />
+    <ClInclude Include="RenderingServer.hpp" />
     <ClInclude Include="screenSpaceAO.hpp" />
     <ClInclude Include="sdfGenerator.hpp" />
     <ClInclude Include="skybox.hpp" />
