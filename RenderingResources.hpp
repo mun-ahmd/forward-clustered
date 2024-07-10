@@ -25,13 +25,37 @@ namespace Rendering {
 		VkImageViewCreateInfo info;
 	};
 
+	struct Sampler {
+		VkSampler sampler;
+	};
+
 	struct CommandBuffer {
 		VkCommandBuffer buffer;
+	};
+
+	struct Semaphore {
+		VkSemaphore semaphore;
+	};
+
+	struct Fence {
+		VkFence fence;
+	};
+
+	struct DescriptorPool {
+		VkDescriptorPool pool;
 	};
 
 	struct DescriptorSet {
 		VkDescriptorSet set;
 		VkDescriptorSetLayout layout;
+	};
+
+	struct ShaderModule {
+		VkShaderModule shaderModule;
+	};
+
+	struct PipelineLayout {
+		VkPipelineLayout layout;
 	};
 
 	struct Pipeline {

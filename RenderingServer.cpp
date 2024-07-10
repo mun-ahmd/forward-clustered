@@ -4,202 +4,183 @@
 #include "vulkan_utils.hpp"
 
 using namespace Rendering;
-//std::unordered_map <std::string, std::vector<VkFormat>> imageFormats = {
-//	{
-//		"r8g8b8a8",
-//		{
-//			VK_FORMAT_R8G8B8A8_SINT,
-//			VK_FORMAT_R8G8B8A8_SNORM,
-//			VK_FORMAT_R8G8B8A8_SRGB,
-//			VK_FORMAT_R8G8B8A8_SSCALED,
-//			VK_FORMAT_R8G8B8A8_UINT,
-//			VK_FORMAT_R8G8B8A8_UNORM,
-//			VK_FORMAT_R8G8B8A8_USCALED
-//			
-//		}
-//	},
-//	{
-//		"r"
-//	},
-//	{"r8g8b8uscale", {VK_FORMAT_A1B5G5R5_UNORM_PACK16_KHR}}
-//};
 
 //todo for now have decided to abandon this automatic format selection
-struct FormatChooseInfo {
-	//these booleans are used to find a suitable VkFormat for the image as well as image usage flags
-	//one and only one of these needs to be true
-	bool isColor = false;
-	bool isDepth = false;
-
-	//for now always assume as both transfer src or dst
-	//bool isTransferSrc = true;
-	//bool isTransferDst = true;
-	bool isAttachment = false;
-	bool isSampled = false;
-	bool isStorage = false;
-
-	//these are required if true, otherwise they may or may not be there
-	bool isPacked = false;
-	bool isSigned = false;
-	bool isUnsigned = false;
-
-	//only one of these should be true
-	bool isNorm = false;
-	bool isSRGB = false;
-	bool isInt = false;
-	bool isScaled = false;
-	bool isFloat = false;
-};
-VkFormat findSuitableImageFormat(FormatChooseInfo info) {
-	assert(info.isColor != info.isDepth);
-	assert( (info.isScaled ^ info.isInt ^ info.isSRGB ^ info.isNorm ^ info.isFloat) == 1);
-
-	//todo incorporate bit width and num components
-	//maybe use lookup table for less messy code
-	if (info.isColor) {
-		if (info.isScaled) {
-			if (info.isPacked) {
-				if (info.isSigned) {
-					//scaled, packed and signed
-
-				}
-				else if (info.isUnsigned) {
-					//scaled, packed and unsigned
-
-				}
-				else {
-					//scaled, packed and don't care
-
-				}
-			}
-			else if (info.isSigned) {
-				//scaled, signed
-
-			}
-			else if (info.isUnsigned) {
-				//scaled, unsigned
-
-			}
-			else {
-				//scaled, do not care about sign or pack
-
-			}
-		}
-		else if (info.isInt) {
-			if (info.isPacked) {
-				if (info.isSigned) {
-					//int, packed and signed
-
-				}
-				else if (info.isUnsigned) {
-					//int, packed and unsigned
-
-				}
-				else {
-					//int, packed and don't care
-
-				}
-			}
-			else if (info.isSigned) {
-				//int, signed
-
-			}
-			else if (info.isUnsigned) {
-				//int, unsigned
-
-			}
-			else {
-				//int, do not care about sign or pack
-
-			}
-		}
-		else if (info.isSRGB) {
-			if (info.isPacked) {
-				if (info.isSigned) {
-					//srgb, packed and signed
-
-				}
-				else if (info.isUnsigned) {
-					//srgb, packed and unsigned
-
-				}
-				else {
-					//srgb, packed and don't care
-
-				}
-			}
-			else if (info.isSigned) {
-				//srgb, signed
-
-			}
-			else if (info.isUnsigned) {
-				//srgb, unsigned
-
-			}
-			else {
-				//srgb, do not care about sign or pack
-
-			}
-		}
-		else if (info.isNorm) {
-			if (info.isPacked) {
-				if (info.isSigned) {
-					//norm, packed and signed
-
-				}
-				else if (info.isUnsigned) {
-					//norm, packed and unsigned
-
-				}
-				else {
-					//norm, packed and don't care
-
-				}
-			}
-			else if (info.isSigned) {
-				//norm, signed
-
-			}
-			else if (info.isUnsigned) {
-				//norm, unsigned
-
-			}
-			else {
-				//norm, do not care about sign or pack
-
-			}
-		}
-		else if (info.isFloat) {
-			if (info.isPacked) {
-				if (info.isSigned) {
-					//float, packed and signed
-
-				}
-				else if (info.isUnsigned) {
-					//float, packed and unsigned
-
-				}
-				else {
-					//float, packed and don't care
-
-				}
-			}
-			else if (info.isSigned) {
-				//float, signed
-
-			}
-			else if (info.isUnsigned) {
-				//float, unsigned
-
-			}
-			else {
-				//float, do not care about sign or pack
-
-			}
-		}
-	}
-
-}
+//struct FormatChooseInfo {
+//	//these booleans are used to find a suitable VkFormat for the image as well as image usage flags
+//	//one and only one of these needs to be true
+//	bool isColor = false;
+//	bool isDepth = false;
+//
+//	//for now always assume as both transfer src or dst
+//	//bool isTransferSrc = true;
+//	//bool isTransferDst = true;
+//	bool isAttachment = false;
+//	bool isSampled = false;
+//	bool isStorage = false;
+//
+//	//these are required if true, otherwise they may or may not be there
+//	bool isPacked = false;
+//	bool isSigned = false;
+//	bool isUnsigned = false;
+//
+//	//only one of these should be true
+//	bool isNorm = false;
+//	bool isSRGB = false;
+//	bool isInt = false;
+//	bool isScaled = false;
+//	bool isFloat = false;
+//};
+//VkFormat findSuitableImageFormat(FormatChooseInfo info) {
+//	assert(info.isColor != info.isDepth);
+//	assert( (info.isScaled ^ info.isInt ^ info.isSRGB ^ info.isNorm ^ info.isFloat) == 1);
+//
+//	//todo incorporate bit width and num components
+//	//maybe use lookup table for less messy code
+//	if (info.isColor) {
+//		if (info.isScaled) {
+//			if (info.isPacked) {
+//				if (info.isSigned) {
+//					//scaled, packed and signed
+//
+//				}
+//				else if (info.isUnsigned) {
+//					//scaled, packed and unsigned
+//
+//				}
+//				else {
+//					//scaled, packed and don't care
+//
+//				}
+//			}
+//			else if (info.isSigned) {
+//				//scaled, signed
+//
+//			}
+//			else if (info.isUnsigned) {
+//				//scaled, unsigned
+//
+//			}
+//			else {
+//				//scaled, do not care about sign or pack
+//
+//			}
+//		}
+//		else if (info.isInt) {
+//			if (info.isPacked) {
+//				if (info.isSigned) {
+//					//int, packed and signed
+//
+//				}
+//				else if (info.isUnsigned) {
+//					//int, packed and unsigned
+//
+//				}
+//				else {
+//					//int, packed and don't care
+//
+//				}
+//			}
+//			else if (info.isSigned) {
+//				//int, signed
+//
+//			}
+//			else if (info.isUnsigned) {
+//				//int, unsigned
+//
+//			}
+//			else {
+//				//int, do not care about sign or pack
+//
+//			}
+//		}
+//		else if (info.isSRGB) {
+//			if (info.isPacked) {
+//				if (info.isSigned) {
+//					//srgb, packed and signed
+//
+//				}
+//				else if (info.isUnsigned) {
+//					//srgb, packed and unsigned
+//
+//				}
+//				else {
+//					//srgb, packed and don't care
+//
+//				}
+//			}
+//			else if (info.isSigned) {
+//				//srgb, signed
+//
+//			}
+//			else if (info.isUnsigned) {
+//				//srgb, unsigned
+//
+//			}
+//			else {
+//				//srgb, do not care about sign or pack
+//
+//			}
+//		}
+//		else if (info.isNorm) {
+//			if (info.isPacked) {
+//				if (info.isSigned) {
+//					//norm, packed and signed
+//
+//				}
+//				else if (info.isUnsigned) {
+//					//norm, packed and unsigned
+//
+//				}
+//				else {
+//					//norm, packed and don't care
+//
+//				}
+//			}
+//			else if (info.isSigned) {
+//				//norm, signed
+//
+//			}
+//			else if (info.isUnsigned) {
+//				//norm, unsigned
+//
+//			}
+//			else {
+//				//norm, do not care about sign or pack
+//
+//			}
+//		}
+//		else if (info.isFloat) {
+//			if (info.isPacked) {
+//				if (info.isSigned) {
+//					//float, packed and signed
+//
+//				}
+//				else if (info.isUnsigned) {
+//					//float, packed and unsigned
+//
+//				}
+//				else {
+//					//float, packed and don't care
+//
+//				}
+//			}
+//			else if (info.isSigned) {
+//				//float, signed
+//
+//			}
+//			else if (info.isUnsigned) {
+//				//float, unsigned
+//
+//			}
+//			else {
+//				//float, do not care about sign or pack
+//
+//			}
+//		}
+//	}
+//
+//}
 
 ResourceID RenderingServer::createImage(ImageCreateInfo imageInfo) {
 	VkFormat parsedFormat;
@@ -267,7 +248,7 @@ ResourceID RenderingServer::createImage(ImageCreateInfo imageInfo) {
 		throw std::runtime_error("Could not create image resource!");
 	}
 
-	return this->images.add(img);
+	return this->resources.add(img);
 }
 
 void __cmdTransitionImageLayout__(VkCommandBuffer commandBuffer, VkImage image, VkImageAspectFlags imageAspect, VkImageLayout oldLayout, VkImageLayout newLayout) {
@@ -385,15 +366,15 @@ void RenderingServer::cmdTransitionImageLayout(
 	std::string oldLayout,
 	std::string newLayout
 ) {
-	Image img = this->images.get(image);
-	VkImageAspectFlags aspect = imageAspectFromString(aspectIN);
+	Image img = this->resources.get<Image>(image);
+	VkImageAspectFlags aspect = imageAspectFlagsFromString(aspectIN);
 
 	__cmdTransitionImageLayout__(
 		this->activeCBuf,
 		img.image,
 		aspect,
-		layoutFromString(oldLayout),
-		layoutFromString(newLayout)
+		imageLayoutFromString(oldLayout),
+		imageLayoutFromString(newLayout)
 	);
 }
 
@@ -403,8 +384,8 @@ void RenderingServer::transitionImageLayout(
 	std::string oldLayout,
 	std::string newLayout
 ) {
-	Image img = this->images.get(image);
-	VkImageAspectFlags aspect = imageAspectFromString(aspectIN);
+	Image img = this->resources.get<Image>(image);
+	VkImageAspectFlags aspect = imageAspectFlagsFromString(aspectIN);
 
 	VkCommandBuffer commandBuffer = core->beginSingleTimeCommands(commandPool);
 
@@ -412,17 +393,62 @@ void RenderingServer::transitionImageLayout(
 		commandBuffer,
 		img.image,
 		aspect,
-		layoutFromString(oldLayout),
-		layoutFromString(newLayout)
+		imageLayoutFromString(oldLayout),
+		imageLayoutFromString(newLayout)
 	);
 
 	core->endSingleTimeCommands(commandPool, commandBuffer);
 }
 
 void RenderingServer::destroyImage(Rendering::ResourceID image) {
-	Image img = this->images.get(image);
+	Image img = this->resources.get<Image>(image);
 	vmaDestroyImage(core->allocator, img.image, img.allocation);
-	this->images.remove(image);
+	this->resources.remove<Image>(image);
+}
+
+Rendering::ResourceID RenderingServer::createImageView(
+	Rendering::ResourceID imageID,
+	Rendering::ImageViewCreateInfo createInfo
+) {
+	Rendering::Image image = this->resources.get<Rendering::Image>(imageID);
+	VkImageViewCreateInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	info.pNext = nullptr;
+
+	info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	info.image = image.image;
+	//todo see if you wanna add mutable formats
+	info.format = image.format;
+	info.subresourceRange.baseMipLevel = 0;
+	info.subresourceRange.levelCount = createInfo.levelCount;
+	info.subresourceRange.baseArrayLayer = 0;
+	info.subresourceRange.layerCount = createInfo.arrayLayerCount;
+	info.subresourceRange.aspectMask = imageAspectFlagsFromString(createInfo.aspectMask);
+
+	Rendering::ImageView view{};
+	view.info = info;
+
+	if (
+		vkCreateImageView(
+			core->device,
+			&view.info,
+			nullptr,
+			&view.view
+		) != VK_SUCCESS
+	) {
+		throw std::runtime_error("Could not create image view!");
+	}
+
+	return this->resources.add(view);
+}
+
+void RenderingServer::destroyImageView(Rendering::ResourceID imageView) {
+	vkDestroyImageView(
+		VulkanUtils::utils().getCore()->device,
+		this->resources.get<Rendering::ImageView>(imageView).view,
+		nullptr
+	);
+	this->resources.remove<Rendering::ImageView>(imageView);
 }
 
 
@@ -461,7 +487,7 @@ ResourceID RenderingServer::createBuffer(BufferCreateInfo info) {
 		throw std::runtime_error("failed to create buffer!");
 	}
 
-	return this->buffers.add(buffer);
+	return this->resources.add(buffer);
 }
 
 void __cmdCopyBuffer__(
@@ -482,8 +508,8 @@ void __cmdCopyBuffer__(
 void RenderingServer::cmdCopyBuffer(
 	BufferCopyInfo copyInf
 ) {
-	VkBuffer src = this->buffers.get(copyInf.srcBuffer).buffer;
-	VkBuffer dst = this->buffers.get(copyInf.dstBuffer).buffer;
+	VkBuffer src = this->resources.get<Buffer>(copyInf.srcBuffer).buffer;
+	VkBuffer dst = this->resources.get<Buffer>(copyInf.dstBuffer).buffer;
 	__cmdCopyBuffer__(
 		this->activeCBuf,
 		src,
@@ -497,8 +523,8 @@ void RenderingServer::cmdCopyBuffer(
 void RenderingServer::copyBuffer(BufferCopyInfo copyInf) {
 	VkCommandBuffer cBuf = core->beginSingleTimeCommands(commandPool);
 
-	VkBuffer src = this->buffers.get(copyInf.srcBuffer).buffer;
-	VkBuffer dst = this->buffers.get(copyInf.dstBuffer).buffer;
+	VkBuffer src = this->resources.get<Buffer>(copyInf.srcBuffer).buffer;
+	VkBuffer dst = this->resources.get<Buffer>(copyInf.dstBuffer).buffer;
 	__cmdCopyBuffer__(
 		cBuf,
 		src,
@@ -518,7 +544,7 @@ void __cmdCopyBufferIntoImage__(
 	Rendering::BufferToImageCopy& copyInf
 ) {
 	VkImageSubresourceLayers imageSubresource{};
-	imageSubresource.aspectMask = imageAspectFromString(copyInf.imageAspect);
+	imageSubresource.aspectMask = imageAspectFlagsFromString(copyInf.imageAspect);
 	imageSubresource.mipLevel = copyInf.mipLevel;
 	imageSubresource.baseArrayLayer = copyInf.baseArrayLayer;
 	imageSubresource.layerCount = copyInf.layerCount;
@@ -558,8 +584,8 @@ void RenderingServer::cmdCopyBufferIntoImage(
 	Rendering::BufferToImageCopy copyInfo
 )
 {
-	Buffer buffer = this->buffers.get(bufferID);
-	Image image = this->images.get(imageID);
+	Buffer buffer = this->resources.get<Buffer>(bufferID);
+	Image image = this->resources.get<Image>(imageID);
 	__cmdCopyBufferIntoImage__(this->activeCBuf, buffer, image, copyInfo);
 }
 
@@ -571,17 +597,32 @@ void RenderingServer::copyBufferIntoImage(
 {
 	VkCommandBuffer commandBuffer = core->beginSingleTimeCommands(commandPool);
 
-	Buffer buffer = this->buffers.get(bufferID);
-	Image image = this->images.get(imageID);
+	Buffer buffer = this->resources.get<Buffer>(bufferID);
+	Image image = this->resources.get<Image>(imageID);
 	__cmdCopyBufferIntoImage__(commandBuffer, buffer, image, copyInfo);
 
 	core->endSingleTimeCommands(commandPool, commandBuffer);
 }
 
 void RenderingServer::destroyBuffer(Rendering::ResourceID buffer) {
-	Buffer buf = this->buffers.get(buffer);
+	Buffer buf = this->resources.get<Buffer>(buffer);
 	vmaDestroyBuffer(core->allocator, buf.buffer, buf.allocation);
-	this->buffers.remove(buffer);
+	this->resources.remove<Buffer>(buffer);
+}
+
+Rendering::ResourceID RenderingServer::createSampler(Rendering::SamplerCreateInfo info) {
+	Rendering::Sampler sampler{};
+
+	VkSamplerCreateInfo samplerInfo = info.getCreateInfo();
+	if (vkCreateSampler(core->device, &samplerInfo, nullptr, &sampler.sampler) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to create Sampler!");
+	}
+	
+	return this->resources.add(sampler);
+}
+
+void RenderingServer::destroySampler(Rendering::ResourceID sampler) {
+	this->resources.remove<Rendering::Sampler>(sampler);
 }
 
 ResourceID RenderingServer::createCommandBuffer() {
@@ -593,13 +634,13 @@ ResourceID RenderingServer::createCommandBuffer() {
 	info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 	Rendering::CommandBuffer cbuf{};
 	cbuf.buffer = core->createCommandBuffer(info);
-	return this->commandBuffers.add(cbuf);
+	return this->resources.add(cbuf);
 }
 
 void RenderingServer::beginCommandBuffer(ResourceID cbuf, bool isOneTimeSubmit) {
 	assert(this->activeCBufResourceID == 0);
 	this->activeCBufResourceID = cbuf;
-	this->activeCBuf = this->commandBuffers.get(cbuf).buffer;
+	this->activeCBuf = this->resources.get<CommandBuffer>(cbuf).buffer;
 
 	VkCommandBufferBeginInfo beginInfo{};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -616,7 +657,7 @@ void RenderingServer::endCommandBuffer() {
 
 void RenderingServer::destroyCommandBuffer(ResourceID commandBuffer) {
 	//command buffers get destroyed along with command pool
-	this->commandBuffers.remove(commandBuffer);
+	this->resources.remove<CommandBuffer>(commandBuffer);
 }
 
 shaderc_shader_kind __shaderKindFromString__(std::string shaderType) {
@@ -651,14 +692,224 @@ ResourceID RenderingServer::createShaderModule(std::string shaderFile, std::stri
 	VkShaderModule shaderModule = VulkanUtils::utils().createShaderModule(
 		shaderSPIRV
 	);
-	return this->shaderModules.add(shaderModule);
+	return this->resources.add(shaderModule);
 }
 
 void RenderingServer::destroyShaderModule(ResourceID moduleID) {
-	VkShaderModule module = this->shaderModules.get(moduleID);
+	VkShaderModule module = this->resources.get<ShaderModule>(moduleID).shaderModule;
 	vkDestroyShaderModule(core->device, module, nullptr);
-	this->shaderModules.remove(moduleID);
+	this->resources.remove<ShaderModule>(moduleID);
 }
+
+Rendering::ResourceID RenderingServer::createDescriptorPool(Rendering::DescriptorPoolCreateInfo poolInfo) {
+	VkDescriptorPoolCreateInfo info{};
+	info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+	info.maxSets = poolInfo.maxSets;
+	info.poolSizeCount = 4;
+	VkDescriptorPoolSize sizes[] =
+	{
+		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, poolInfo.uniformBufferCount},
+		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, poolInfo.storageBufferCount},
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, poolInfo.combinedImageSamplerCount},
+		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, poolInfo.uniformBufferDynamicCount}
+	};
+	info.pPoolSizes = sizes;
+
+	Rendering::DescriptorPool descriptorPool{};
+	if (vkCreateDescriptorPool(core->device, &info, nullptr, &descriptorPool.pool) != VK_SUCCESS) {
+		throw std::runtime_error("Error creating descriptor pool");
+	};
+
+	return this->resources.add(descriptorPool);
+}
+
+Rendering::ResourceID RenderingServer::createDescriptorSet(Rendering::DescriptorSetCreateInfo info) {
+	VkDescriptorSetLayoutCreateInfo layoutInfo{};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.flags = 0;	//todo add layout create flags (like update after bind (imp))
+	layoutInfo.bindingCount = info.bindings.size();
+	layoutInfo.pBindings = info.bindings.data();
+	
+	assert(info.bindings.size() == info.bindingFlags.size() && "improper binding indices!");
+	VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{};
+	bindingFlagsInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+	bindingFlagsInfo.bindingCount = info.bindings.size();
+	bindingFlagsInfo.pBindingFlags = info.bindingFlags.data();
+	bindingFlagsInfo.pNext = nullptr;
+
+	layoutInfo.pNext = &bindingFlagsInfo;
+
+	VkDescriptorSetLayout layout;
+	if (vkCreateDescriptorSetLayout(core->device, &layoutInfo, nullptr, &layout) != VK_SUCCESS) {
+		throw std::runtime_error("Error creating descriptor set layout");
+	};
+
+	VkDescriptorSetAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = this->resources.get<DescriptorPool>(info.descriptorPool).pool;
+	allocInfo.descriptorSetCount = 1;
+	allocInfo.pSetLayouts = &layout;
+
+	VkDescriptorSet dSet{};
+	if (vkAllocateDescriptorSets(core->device, &allocInfo, &dSet) != VK_SUCCESS) {
+		throw std::runtime_error("Error creating descriptor set");
+	};
+
+	Rendering::DescriptorSet descriptorSet{};
+	descriptorSet.layout = layout;
+	descriptorSet.set = dSet;
+	return this->resources.add(descriptorSet);
+}
+
+void __writeResourceToDescriptorSet__(
+	VkDevice device,
+	VkDescriptorSet dstSet,
+	uint32_t dstBinding,
+	uint32_t dstArrayElement,
+	VkDescriptorType descriptorType,
+	VkDescriptorBufferInfo* bufferInfo,
+	VkDescriptorImageInfo* imageInfo
+) {
+	VkWriteDescriptorSet write{};
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.descriptorCount = 1;
+
+	write.descriptorType = descriptorType;
+
+	write.dstSet = dstSet;
+	write.dstBinding = dstBinding;
+	write.dstArrayElement = dstArrayElement;
+
+	write.pBufferInfo = bufferInfo;
+	write.pImageInfo = imageInfo;
+
+	write.pNext = nullptr;
+
+
+	vkUpdateDescriptorSets(
+		device,
+		1,
+		&write,
+		0,
+		nullptr
+	);
+}
+
+void RenderingServer::writeBufferToDescriptorSet(
+	Rendering::ResourceID descriptorSet,
+	uint32_t dstBinding,
+	uint32_t dstArrayElement,
+	Rendering::ResourceID buffer,
+	uint32_t offset,
+	uint32_t range,
+	bool isUniform,
+	bool isDynamic
+) {
+	VkDescriptorSet dstSet = this->resources.get<Rendering::DescriptorSet>(descriptorSet).set;
+
+	VkDescriptorType descriptorType{};
+
+	if (isUniform) {
+		descriptorType = isDynamic ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	}
+	else {
+		descriptorType = isDynamic ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	}
+
+	VkDescriptorBufferInfo bufferInfo{};
+	bufferInfo.buffer = this->resources.get<Rendering::Buffer>(buffer).buffer;
+	bufferInfo.offset = offset;
+	bufferInfo.range = range;
+
+	__writeResourceToDescriptorSet__(
+		core->device,
+		dstSet,
+		dstBinding,
+		dstArrayElement,
+		descriptorType,
+		&bufferInfo,
+		nullptr
+	);
+}
+
+void RenderingServer::writeImageToDescriptorSet(
+	Rendering::ResourceID descriptorSet,
+	uint32_t dstBinding,
+	uint32_t dstArrayElement,
+	Rendering::ResourceID imageView,
+	std::string imageLayout,
+	bool isSampledNotStorage
+) {
+	VkDescriptorSet dstSet = this->resources.get<Rendering::DescriptorSet>(descriptorSet).set;
+	VkDescriptorType descriptorType = isSampledNotStorage ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+
+	VkDescriptorImageInfo imgInfo{};
+	imgInfo.imageView = this->resources.get<Rendering::ImageView>(imageView).view;
+	imgInfo.imageLayout = imageLayoutFromString(imageLayout);
+	imgInfo.sampler = VK_NULL_HANDLE;
+
+	__writeResourceToDescriptorSet__(
+		core->device,
+		dstSet,
+		dstBinding,
+		dstArrayElement,
+		descriptorType,
+		nullptr,
+		&imgInfo
+	);
+}
+
+void RenderingServer::writeSamplerToDescriptorSet(
+	Rendering::ResourceID descriptorSet,
+	uint32_t dstBinding,
+	uint32_t dstArrayElement,
+	Rendering::ResourceID sampler
+) {
+	VkDescriptorSet dstSet = this->resources.get<Rendering::DescriptorSet>(descriptorSet).set;
+	VkDescriptorType descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+
+	VkDescriptorImageInfo imgInfo{};
+	imgInfo.sampler = this->resources.get<Rendering::Sampler>(sampler).sampler;
+
+	__writeResourceToDescriptorSet__(
+		core->device,
+		dstSet,
+		dstBinding,
+		dstArrayElement,
+		descriptorType,
+		nullptr,
+		&imgInfo
+	);
+}
+
+void RenderingServer::writeCombinedImageSamplerToDescriptorSet(
+	Rendering::ResourceID descriptorSet,
+	uint32_t dstBinding,
+	uint32_t dstArrayElement,
+	Rendering::ResourceID imageView,
+	Rendering::ResourceID sampler,
+	std::string imageLayout
+) {
+	VkDescriptorSet dstSet = this->resources.get<Rendering::DescriptorSet>(descriptorSet).set;
+	VkDescriptorType descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+
+	VkDescriptorImageInfo imgInfo{};
+	imgInfo.imageView = this->resources.get<Rendering::ImageView>(imageView).view;
+	imgInfo.imageLayout = imageLayoutFromString(imageLayout);
+	imgInfo.sampler = this->resources.get<Rendering::Sampler>(sampler).sampler;
+
+	__writeResourceToDescriptorSet__(
+		core->device,
+		dstSet,
+		dstBinding,
+		dstArrayElement,
+		descriptorType,
+		nullptr,
+		&imgInfo
+	);
+}
+
 
 ResourceID RenderingServer::createPipelineLayout(PipelineLayoutCreateInfo info){
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
@@ -667,7 +918,7 @@ ResourceID RenderingServer::createPipelineLayout(PipelineLayoutCreateInfo info){
 	std::vector<VkDescriptorSetLayout> layouts;
 	layouts.reserve(info.setsForSetLayouts.size());
 	for (ResourceID id : info.setsForSetLayouts) {
-		layouts.push_back(this->descriptorSets.get(id).layout);
+		layouts.push_back(this->resources.get<DescriptorSet>(id).layout);
 	}
 
 	pipelineLayoutInfo.setLayoutCount = layouts.size();
@@ -676,9 +927,10 @@ ResourceID RenderingServer::createPipelineLayout(PipelineLayoutCreateInfo info){
 	pipelineLayoutInfo.pushConstantRangeCount = info.pushConstants.size();
 	pipelineLayoutInfo.pPushConstantRanges = info.pushConstants.data();
 
-	VkPipelineLayout pipelineLayout = core->createPipelineLayout(pipelineLayoutInfo);
+	Rendering::PipelineLayout pipelineLayout{};
+	pipelineLayout.layout = core->createPipelineLayout(pipelineLayoutInfo);
 
-	return this->pipelineLayouts.add(pipelineLayout);
+	return this->resources.add(pipelineLayout);
 }
 
 ResourceID RenderingServer::createPipeline(PipelineCreateInfo info) {
@@ -686,13 +938,13 @@ ResourceID RenderingServer::createPipeline(PipelineCreateInfo info) {
 	VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
 	vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-	vertShaderStageInfo.module = this->shaderModules.get(info.vertexShaderModule);
+	vertShaderStageInfo.module = this->resources.get<ShaderModule>(info.vertexShaderModule).shaderModule;
 	vertShaderStageInfo.pName = "main";
 
 	VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
 	fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-	fragShaderStageInfo.module = this->shaderModules.get(info.fragmentShaderModule);
+	fragShaderStageInfo.module = this->resources.get<ShaderModule>(info.fragmentShaderModule).shaderModule;
 	fragShaderStageInfo.pName = "main";
 
 	VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
@@ -775,7 +1027,7 @@ ResourceID RenderingServer::createPipeline(PipelineCreateInfo info) {
 	pipelineInfo.pDepthStencilState = &depthStencilCI;
 	pipelineInfo.pDynamicState = &dynamicState;
 
-	pipelineInfo.layout = this->pipelineLayouts.get(info.pipelineLayout);
+	pipelineInfo.layout = this->resources.get<PipelineLayout>(info.pipelineLayout).layout;
 
 	pipelineInfo.renderPass = VK_NULL_HANDLE;
 	pipelineInfo.subpass = 0;
@@ -787,14 +1039,147 @@ ResourceID RenderingServer::createPipeline(PipelineCreateInfo info) {
 	pipeline.layoutID = info.pipelineLayout;
 	pipeline.pipeline = core->createGraphicsPipeline(pipelineInfo);
 
-	return this->pipelines.add(pipeline);
+	return this->resources.add(pipeline);
 }
 
 void RenderingServer::cmdUsePipeline(ResourceID pipeline) {
-	vkCmdBindPipeline(activeCBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipelines.get(pipeline).pipeline);
+	vkCmdBindPipeline(activeCBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, this->resources.get<Pipeline>(pipeline).pipeline);
 }
 
 void RenderingServer::destroyPipeline(ResourceID pipeline) {
-	Pipeline pipe = this->pipelines.get(pipeline);
+	Pipeline pipe = this->resources.get<Pipeline>(pipeline);
 	vkDestroyPipeline(core->device, pipe.pipeline, nullptr);
+}
+
+void RenderingServer::beginRendering(Rendering::RenderingInfo info) {
+	VkRenderingInfo renderInfo{};
+	renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+	renderInfo.pDepthAttachment = nullptr;
+	renderInfo.pStencilAttachment = nullptr;
+	renderInfo.colorAttachmentCount = 0;
+	renderInfo.pColorAttachments = nullptr;
+
+	//todo see if you want to add multiview functionality later
+	renderInfo.layerCount = 1;
+	renderInfo.viewMask = 0;
+	renderInfo.renderArea = info.renderArea;
+
+	renderInfo.pNext = nullptr;
+
+	auto depthImageView = this->resources.getIfExists<Rendering::ImageView>(info.depthImageView);
+	if (depthImageView.has_value()) {
+		info.depthAttachment.imageView = depthImageView->view;
+		renderInfo.pDepthAttachment = &info.depthAttachment;
+	}
+
+	auto stencilImageView = this->resources.getIfExists<Rendering::ImageView>(info.stencilImageView);
+	if (stencilImageView.has_value()) {
+		info.stencilAttachment.imageView = stencilImageView->view;
+		renderInfo.pStencilAttachment = &info.stencilAttachment;
+	}
+
+	assert(info.colorAttachmentImageViews.size() == info.colorAttachments.size());
+	for (int i = 0; i < info.colorAttachments.size(); i++) {
+		auto colorImageView = this->resources.getIfExists<Rendering::ImageView>(
+			info.colorAttachmentImageViews[i]
+		);
+		if (colorImageView.has_value()) {
+			info.colorAttachments[i].imageView = colorImageView->view;
+		}
+		else {
+			info.colorAttachments[i].imageView = VK_NULL_HANDLE;
+		}
+	}
+	renderInfo.colorAttachmentCount = info.colorAttachments.size();
+	renderInfo.pColorAttachments = info.colorAttachments.data();
+
+	vkCmdBeginRendering(activeCBuf, &renderInfo);
+}
+
+void RenderingServer::endRendering() {
+	vkCmdEndRendering(this->activeCBuf);
+}
+
+void RenderingServer::setActiveViewport(uint32_t index, Rendering::ViewportInfo info) {
+	VkViewport viewport = info.getAsVk();
+	vkCmdSetViewport(activeCBuf, index, 1, &viewport);
+}
+
+void RenderingServer::setActiveScissor(uint32_t index, Rendering::Rect2D info) {
+	VkRect2D scissor = info.getAsVk();
+	vkCmdSetScissor(activeCBuf, index, 1, &scissor);
+}
+
+Rendering::ResourceID RenderingServer::createFence(bool createSignalled) {
+	VkFenceCreateInfo info{};
+	info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	info.flags = createSignalled ? VK_FENCE_CREATE_SIGNALED_BIT : 0;
+	info.pNext = nullptr;
+	Fence fence{};
+	fence.fence = core->createFence(info);
+	return this->resources.add(fence);
+}
+
+void RenderingServer::destroyFence(Rendering::ResourceID fence) {
+	vkDestroyFence(core->device, this->resources.get<Fence>(fence).fence, nullptr);
+	this->resources.remove<Fence>(fence);
+}
+
+Rendering::ResourceID RenderingServer::createSemaphore() {
+	VkSemaphoreCreateInfo info{};
+	info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	info.flags = 0;
+	info.pNext = nullptr;
+	Semaphore semaphore{};
+	semaphore.semaphore = core->createSemaphore(info);
+	return this->resources.add(semaphore);
+}
+
+void RenderingServer::destroySemaphore(Rendering::ResourceID semaphore) {
+	vkDestroySemaphore(core->device, this->resources.get<Semaphore>(semaphore).semaphore, nullptr);
+	this->resources.remove<Semaphore>(semaphore);
+}
+
+void RenderingServer::submitCommandBuffer(
+	ResourceID commandBuffer,
+	CommandBufferSubmitInfo submitInfo
+) {
+	VkCommandBuffer cbuf = this->resources.get<CommandBuffer>(commandBuffer).buffer;
+	VkFence fence = this->resources.get<Fence>(submitInfo.fence).fence;
+	VkSubmitInfo submit{};
+	submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submit.pNext = nullptr;
+	
+	submit.commandBufferCount = 1;
+	submit.pCommandBuffers = &cbuf;
+	
+	std::vector<VkSemaphore> signalSemaphores;
+	for (Semaphore s : this->resources.getResourceStore<Semaphore>()->getMany(
+		submitInfo.signalSemaphores
+	)) {
+		signalSemaphores.push_back(s.semaphore);
+	}
+
+	submit.signalSemaphoreCount = signalSemaphores.size();
+	submit.pSignalSemaphores = signalSemaphores.data();
+
+	std::vector<VkSemaphore> waitSemaphores;
+	for (Semaphore s : this->resources.getResourceStore<Semaphore>()->getMany(
+		submitInfo.waitSemaphores
+	)) {
+		waitSemaphores.push_back(s.semaphore);
+	}
+
+	submit.waitSemaphoreCount = waitSemaphores.size();
+	submit.pWaitSemaphores = waitSemaphores.data();
+	submit.pWaitDstStageMask = submitInfo.waitStages.data();
+
+	if (vkQueueSubmit(core->graphicsQueue, 1, &submit, fence) != VK_SUCCESS) {
+		//error
+		//todo	add util function to print resource username and id seperately
+		throw std::runtime_error(
+			"error while submitting command buffer: " +
+			std::to_string(commandBuffer)
+		);
+	}
 }

@@ -153,11 +153,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="cameraObj.cpp" />
-    <ClCompile Include="EnumsFromStrings.cpp" />
     <ClCompile Include="fast_obj.c" />
     <ClCompile Include="RenderingServer.cpp" />
     <ClInclude Include="depthOnlyRenderer.hpp" />
     <ClInclude Include="EnumsFromStrings.hpp" />
+    <ClInclude Include="EnumStringConversionBase.hpp" />
     <ClInclude Include="forwardRenderer.hpp" />
     <ClCompile Include="ImageLoader.cpp" />
     <ClCompile Include="Imgui\imgui.cpp" />

@@ -84,9 +84,6 @@
     <ClCompile Include="RenderingServer.cpp">
       <Filter>Header Files\Rendering Server</Filter>
     </ClCompile>
-    <ClCompile Include="EnumsFromStrings.cpp">
-      <Filter>Header Files\Rendering Server</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="fast_obj.h">
@@ -208,6 +205,9 @@
     </ClInclude>
     <ClInclude Include="screenSpaceAO.hpp">
       <Filter>Header Files\rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="EnumStringConversionBase.hpp">
+      <Filter>Header Files\Rendering Server</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

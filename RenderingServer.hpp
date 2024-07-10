@@ -16,13 +16,29 @@ class IdMappedResource {
 public:
 	std::unordered_map<Rendering::ResourceID, T> store;
 
-	//start from 1, 0 means null
+	constexpr static unsigned int ID_TAG_BITS = 4;
+	// 4 bit customizable tag 28 bit id
+	// 0 means null
 	uint32_t currentID = 1;
 
-	Rendering::ResourceID add(T value) {
-		Rendering::ResourceID valueID = currentID;
-		store[valueID] = value;
+	inline static uint8_t getTag(Rendering::ResourceID id) {
+		return (id >> (32 - ID_TAG_BITS));
+	}
+
+	inline static uint32_t getBaseID(Rendering::ResourceID id) {
+		return (id & (0xFFFFFFFF >> ID_TAG_BITS));
+	}
+
+	inline  Rendering::ResourceID genNextID(uint8_t tag) {
+		assert( (currentID >> (32 - ID_TAG_BITS)) == 0 && "Ran out of ids to map to resources");
+		uint32_t result = (tag << (32 - ID_TAG_BITS)) | (currentID & (0xFFFFFFFF >> ID_TAG_BITS));
 		currentID += 1;
+		return result;
+	}
+
+	Rendering::ResourceID add(T value, uint8_t tag) {
+		Rendering::ResourceID valueID = genNextID(tag);
+		store[valueID] = value;
 		return valueID;
 	}
 
@@ -37,6 +53,83 @@ public:
 	T get(Rendering::ResourceID id) {
 		return store[id];
 	}
+
+	std::vector<T> getMany(std::vector<Rendering::ResourceID> ids) {
+		std::vector<T> data;
+		data.reserve(ids.size());
+		for (Rendering::ResourceID id : ids) {
+			data.push_back(this->get(id));
+		}
+		return data;
+	}
+};
+
+class MultiIdMappedResources {
+private:
+	typedef decltype(((type_info*)nullptr)->hash_code()) __TYPEID__;
+	
+	template<typename T>
+	inline __TYPEID__ getTypeIdentifier() {
+		return typeid(T).hash_code();
+	}
+
+	std::unordered_map<__TYPEID__, std::shared_ptr<void>> resources;
+
+	uint8_t activeResourceTag = 0;
+public:
+	
+	void setActiveResourceTag(uint8_t tag) {
+		this->activeResourceTag = tag;
+	}
+
+	template<typename T>
+	void addResourceType() {
+		__TYPEID__ typeIdentifier = getTypeIdentifier<T>();
+		assert(this->resources.find(typeIdentifier) == this->resources.end());
+		this->resources[typeIdentifier] = std::make_shared<IdMappedResource<T>>();
+	}
+
+	template<typename T>
+	std::shared_ptr<IdMappedResource<T>> getResourceStore() {
+		assert(this->resources.find(getTypeIdentifier<T>()) != this->resources.end());
+		std::shared_ptr<IdMappedResource<T>> resourceStore =
+			std::static_pointer_cast<IdMappedResource<T>>(
+				this->resources[getTypeIdentifier<T>()]
+			);
+		return resourceStore;
+	}
+
+	template<typename T>
+	Rendering::ResourceID add(T value) {
+		return this->getResourceStore<T>()->add(value, activeResourceTag);
+	}
+
+	template<typename T>
+	bool has(Rendering::ResourceID id) {
+		return this->getResourceStore<T>()->has(id);
+	}
+
+	template<typename T>
+	T get(Rendering::ResourceID id) {
+		return this->getResourceStore<T>()->get(id);
+	}
+
+	template<typename T>
+	std::optional<T> getIfExists(Rendering::ResourceID id) {
+		if (this->has<T>(id)) {
+			return this->get<T>(id);
+		}
+		else {
+			return {};
+		}
+	}
+
+	template<typename T>
+	void remove(Rendering::ResourceID id) {
+		this->getResourceStore<T>()->remove(id);
+	}
+
+
 };
 
 //for now let swapchain use vkobject on its own without rendering server
@@ -102,16 +195,78 @@ private:
 	Rendering::ResourceID activeCBufResourceID;
 	//todo add swapchain into this
 
-	IdMappedResource<Rendering::Image> images;
-	IdMappedResource<Rendering::ImageView> imageViews;
-	IdMappedResource<Rendering::Buffer> buffers;
-	IdMappedResource<Rendering::CommandBuffer> commandBuffers;
-	IdMappedResource<VkShaderModule> shaderModules;
-	IdMappedResource<Rendering::DescriptorSet> descriptorSets;
-	IdMappedResource<VkPipelineLayout> pipelineLayouts;
-	IdMappedResource<Rendering::Pipeline> pipelines;
+	//todo problematic since managing tags is not automatic
+	//inline std::shared_ptr<IdMappedResource<Rendering::Image>> images(){
+	//	return this->resources.getResourceStore<Rendering::Image>();
+	//}
+	//inline std::shared_ptr<IdMappedResource<Rendering::ImageView>> imageViews() {
+	//	return this->resources.getResourceStore<Rendering::ImageView>();
+	//}
+	//inline std::shared_ptr<IdMappedResource<Rendering::Buffer>> buffers() {
+	//	return this->resources.getResourceStore<Rendering::Buffer>();
+	//}
+	//inline std::shared_ptr<IdMappedResource<Rendering::CommandBuffer>> commandBuffers() {
+	//	return this->resources.getResourceStore<Rendering::CommandBuffer>();
+	//}
+	//inline std::shared_ptr<IdMappedResource<Rendering::ShaderModule>> shaderModules() {
+	//	return this->resources.getResourceStore<Rendering::ShaderModule>();
+	//}
+	//inline std::shared_ptr<IdMappedResource<Rendering::DescriptorPool>> descriptorPools() {
+	//	return this->resources.getResourceStore<Rendering::DescriptorPool>();
+	//}
+	//inline std::shared_ptr<IdMappedResource<Rendering::DescriptorSet>> descriptorSets() {
+	//	return this->resources.getResourceStore<Rendering::DescriptorSet>();
+	//}
+	//inline std::shared_ptr<IdMappedResource<Rendering::PipelineLayout>> pipelineLayouts() {
+	//	return this->resources.getResourceStore<Rendering::PipelineLayout>();
+	//}
+	//inline std::shared_ptr<IdMappedResource<Rendering::Pipeline>> pipelines() {
+	//	return this->resources.getResourceStore<Rendering::Pipeline>();
+	//}
+	//inline std::shared_ptr<IdMappedResource<Rendering::Semaphore>> semaphores() {
+	//	return this->resources.getResourceStore<Rendering::Semaphore>();
+	//}
+	//inline std::shared_ptr<IdMappedResource<Rendering::Fence>> fences() {
+	//	return this->resources.getResourceStore<Rendering::Fence>();
+	//}
+	
+	MultiIdMappedResources resources;
+	void registerResourceTypes() {
+		resources.addResourceType<Rendering::Image>();
+		resources.addResourceType<Rendering::ImageView>();
+		resources.addResourceType<Rendering::Buffer>();
+		resources.addResourceType<Rendering::Sampler>();
+		resources.addResourceType<Rendering::CommandBuffer>();
+		resources.addResourceType<Rendering::ShaderModule>();
+		resources.addResourceType<Rendering::DescriptorPool>();
+		resources.addResourceType<Rendering::DescriptorSet>();
+		resources.addResourceType<Rendering::PipelineLayout>();
+		resources.addResourceType<Rendering::Pipeline>();
+		resources.addResourceType<Rendering::Semaphore>();
+		resources.addResourceType<Rendering::Fence>();
+	}
 
 public:
+	enum class ResourceUser : uint8_t {
+		NONE = 0,
+		LUA = 1,
+		SCENE = 2,
+		OTHER = 3
+	};
+
+private:
+	RenderingServer::ResourceUser activeResourceUser;
+	void setActiveTagForAll(uint8_t tag) {
+		this->resources.setActiveResourceTag(tag);
+	}
+
+public:
+	ResourceUser activeUser = ResourceUser::NONE;
+
+	void setOperatingUser(RenderingServer::ResourceUser activeUser) {
+		this->setActiveTagForAll(static_cast<uint8_t>(activeUser));
+	}
+
 	Rendering::ResourceID createImage(Rendering::ImageCreateInfo createInfo);
 	void cmdTransitionImageLayout(
 		Rendering::ResourceID image,
@@ -128,7 +283,6 @@ public:
 	);
 	void destroyImage(Rendering::ResourceID image);
 
-	//todo
 	Rendering::ResourceID createImageView(
 		Rendering::ResourceID image,
 		Rendering::ImageViewCreateInfo createInfo
@@ -150,22 +304,63 @@ public:
 	);
 	//todo also find mechanism to write to buffers from lua
 	//not urgent
+	//eg.) void writeToBuffer(xyz);
+
 	void destroyBuffer(Rendering::ResourceID buffer);
+
+	Rendering::ResourceID createSampler(Rendering::SamplerCreateInfo info);
+	void destroySampler(Rendering::ResourceID sampler);
 
 	Rendering::ResourceID createShaderModule(std::string shaderFile, std::string shaderType);
 	void destroyShaderModule(Rendering::ResourceID module);
 
-	//todo maybe also add descriptor pools here
+	Rendering::ResourceID createDescriptorPool(Rendering::DescriptorPoolCreateInfo info);
 	Rendering::ResourceID createDescriptorSet(Rendering::DescriptorSetCreateInfo info);
+	
+	void writeBufferToDescriptorSet(
+		Rendering::ResourceID descriptorSet,
+		uint32_t dstBinding,
+		uint32_t dstArrayElement,
+		Rendering::ResourceID buffer,
+		uint32_t offset,
+		uint32_t range,
+		bool isUniform,
+		bool isDynamic
+	);
+	void writeImageToDescriptorSet(
+		Rendering::ResourceID descriptorSet,
+		uint32_t dstBinding,
+		uint32_t dstArrayElement,
+		Rendering::ResourceID imageView,
+		std::string imageLayout,
+		bool isSampledNotStorage
+	);
+	void writeSamplerToDescriptorSet(
+		Rendering::ResourceID descriptorSet,
+		uint32_t dstBinding,
+		uint32_t dstArrayElement,
+		Rendering::ResourceID sampler
+	);
+	void writeCombinedImageSamplerToDescriptorSet(
+		Rendering::ResourceID descriptorSet,
+		uint32_t dstBinding,
+		uint32_t dstArrayElement,
+		Rendering::ResourceID imageView,
+		Rendering::ResourceID sampler,
+		std::string imageLayout
+	);
 
 	Rendering::ResourceID createPipelineLayout(Rendering::PipelineLayoutCreateInfo info);
 	Rendering::ResourceID createPipeline(Rendering::PipelineCreateInfo createInfo);
 	void cmdUsePipeline(Rendering::ResourceID pipeline);
 	void destroyPipeline(Rendering::ResourceID pipeline);
 
-	//todo
 	void beginRendering(Rendering::RenderingInfo info);
 	void endRendering();
+
+	void setActiveViewport(uint32_t index, Rendering::ViewportInfo info);
+	void setActiveScissor(uint32_t index, Rendering::Rect2D info);
+
 
 	Rendering::ResourceID createCommandBuffer();
 	//makes this one the active commandbuffer, error if one is already going on
@@ -173,24 +368,33 @@ public:
 	void endCommandBuffer();
 	void destroyCommandBuffer(Rendering::ResourceID commandBuffer);
 
-	//todo
 	Rendering::ResourceID createFence(bool createSignalled);
 	void destroyFence(Rendering::ResourceID fence);
-	Rendering::ResourceID createSemaphore(bool createSignalled);
+	Rendering::ResourceID createSemaphore();
 	void destroySemaphore(Rendering::ResourceID semaphore);
-	void submitCommandBuffer(ResourceID commandBuffer, CommandBufferSubmitInfo submitInfo);
+	void submitCommandBuffer(Rendering::ResourceID commandBuffer, Rendering::CommandBufferSubmitInfo submitInfo);
 
-	Rendering::ResourceID createLight(Rendering::LightCreateInfo info);
-	void updateLight(Rendering::ResourceID light, Rendering::LightProperties props);
-	void destroyLight(Rendering::ResourceID light);
+	//todo
+	// move all of these to a different class which uses the RenderingServer api
+	// to manage all of the scene resources
+	// scene resources should be initialized and managed by a different script
+	// these resources will use a different tag than the rendering script resources
+	// this will allow for faster reloading when only the rendering script is changed
+	// as the scene will not be reloaded which takes by far the most time to do along with vulkan core initialization
+	//
+	//		to be done after testing of everything else is done
 
-	Rendering::ResourceID createMaterial(Rendering::MaterialCreateInfo info);
-	void destroyMaterial(Rendering::ResourceID material);
+	//Rendering::ResourceID createLight(Rendering::LightCreateInfo info);
+	//void updateLight(Rendering::ResourceID light, Rendering::LightProperties props);
+	//void destroyLight(Rendering::ResourceID light);
 
-	Rendering::ResourceID createMesh(Rendering::MeshCreateInfo info);
-	void destroyMesh(Rendering::ResourceID mesh);
+	//Rendering::ResourceID createMaterial(Rendering::MaterialCreateInfo info);
+	//void destroyMaterial(Rendering::ResourceID material);
 
-	Rendering::ResourceID createRenderedInstance(Rendering::RenderedInstanceCreateInfo info);
-	void updateRenderedInstance(Rendering::ResourceID instance, Rendering::InstanceInfo info);
-	void destroyRenderedInstance(Rendering::ResourceID instance);
+	//Rendering::ResourceID createMesh(Rendering::MeshCreateInfo info);
+	//void destroyMesh(Rendering::ResourceID mesh);
+
+	//Rendering::ResourceID createRenderedInstance(Rendering::RenderedInstanceCreateInfo info);
+	//void updateRenderedInstance(Rendering::ResourceID instance, Rendering::InstanceInfo info);
+	//void destroyRenderedInstance(Rendering::ResourceID instance);
 };
