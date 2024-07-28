@@ -1,6 +1,7 @@
 #pragma once
 #include "buffer.hpp"
 #include "vulkan_utils.hpp"
+#include <assert.h>
 
 template<class ResourceInfo>
 class DUResource {
@@ -10,7 +11,7 @@ public:
 
 	std::shared_ptr<Buffer> stagingBuf;
 	void* stagingBufMap;
-
+	
 	size_t storedResources;
 	size_t maximumResources;
 
@@ -115,7 +116,7 @@ public:
 	}
 
 	void updateWhole(VulkanCore core, VkCommandPool pool, BaseInfo baseInfo, ArrayInfo* arrInfo, size_t arrLen, size_t arrOffset) {
-		assert(arrOffset + arrLen <= maxLength, "Buffer array updation out of bounds");
+		assert(arrOffset + arrLen <= maxLength && "Buffer array updation out of bounds");
 		auto stagingBuf = Buffer::create(
 			core,
 			sizeof(BaseInfo) + arrLen * sizeof(ArrayInfo),
@@ -153,7 +154,7 @@ public:
 	}
 
 	void updateArray(VulkanCore core, VkCommandPool pool, ArrayInfo* arrInfo, size_t arrLen, size_t arrOffset) {
-		assert(arrOffset + arrLen <= maxLength, "Buffer array updation out of bounds");
+		assert(arrOffset + arrLen <= maxLength && "Buffer array updation out of bounds");
 		auto stagingBuf = Buffer::create(
 			core,
 			arrLen * sizeof(ArrayInfo),
@@ -260,7 +261,7 @@ public:
 	}
 
 	void updateArray(VulkanCore core, VkCommandPool pool, ArrayInfo* arrInfo, size_t arrLen, size_t arrOffset) {
-		assert(arrOffset + arrLen <= maxLength, "Buffer array updation out of bounds");
+		assert(arrOffset + arrLen <= maxLength && "Buffer array updation out of bounds");
 		auto stagingBuf = Buffer::create(
 			core,
 			arrLen * sizeof(ArrayInfo),

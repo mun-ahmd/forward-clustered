@@ -221,6 +221,7 @@ ResourceID RenderingServer::createImage(ImageCreateInfo imageInfo) {
 
 	info.mipLevels = imageInfo.mipLevels;
 	info.arrayLayers = imageInfo.arrayLayers;
+	info.usage = usageFlags;
 	info.samples = VK_SAMPLE_COUNT_1_BIT;
 	info.tiling = VK_IMAGE_TILING_OPTIMAL;
 	info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -1182,4 +1183,210 @@ void RenderingServer::submitCommandBuffer(
 			std::to_string(commandBuffer)
 		);
 	}
+}
+
+
+void bindRenderingCreateInfoToLua(sol::state& luaState);
+void bindRenderingServerToLua(sol::table& rendering, RenderingServer* server);
+
+void RenderingServer::registerRenderingBindings()
+{
+	lua.state.open_libraries(sol::lib::base);
+	lua.rendering = lua.state.create_named_table("rs");
+	bindRenderingCreateInfoToLua(lua.state);
+	bindRenderingServerToLua(lua.rendering, this);
+}
+
+void bindRenderingCreateInfoToLua(sol::state& luaState) {
+	luaState.new_usertype<ImageCreateInfo>(
+		"ImageCreateInfo",
+		sol::constructors<ImageCreateInfo()>(),
+		"format", &ImageCreateInfo::format,
+		"isColorAttachment", &ImageCreateInfo::isColorAttachment,
+		"isDepthAttachment", &ImageCreateInfo::isDepthAttachment,
+		"isSampled", &ImageCreateInfo::isSampled,
+		"isStorage", &ImageCreateInfo::isStorage,
+		"numDimensions", &ImageCreateInfo::numDimensions,
+		"width", &ImageCreateInfo::width,
+		"height", &ImageCreateInfo::height,
+		"depth", &ImageCreateInfo::depth,
+		"mipLevels", &ImageCreateInfo::mipLevels,
+		"arrayLayers", &ImageCreateInfo::arrayLayers
+	);
+	luaState.new_usertype<ImageViewCreateInfo>(
+		"ImageViewCreateInfo",
+		sol::constructors<ImageViewCreateInfo()>(),
+		"aspectMask", &ImageViewCreateInfo::aspectMask,
+		"levelCount", &ImageViewCreateInfo::levelCount,
+		"arrayLayerCount", &ImageViewCreateInfo::arrayLayerCount
+	);
+	luaState.new_usertype<BufferCreateInfo>(
+		"BufferCreateInfo",
+		sol::constructors<BufferCreateInfo()>(),
+		"size", &BufferCreateInfo::size,
+		"createDedicatedMemory", &BufferCreateInfo::createDedicatedMemory,
+		"createMapped", &BufferCreateInfo::createMapped
+	);
+	luaState.new_usertype<BufferCopyInfo>(
+		"BufferCopyInfo",
+		sol::constructors<BufferCopyInfo()>(),
+		"srcBuffer", &BufferCopyInfo::srcBuffer,
+		"dstBuffer", &BufferCopyInfo::dstBuffer,
+		"srcOffset", &BufferCopyInfo::srcOffset,
+		"dstOffset", &BufferCopyInfo::dstOffset,
+		"size", &BufferCopyInfo::size
+	);
+	luaState.new_usertype<BufferToImageCopy>(
+		"BufferToImageCopy",
+		sol::constructors<BufferToImageCopy()>(),
+		"bufferOffset", &BufferToImageCopy::bufferOffset,
+		"bufferRowLength", &BufferToImageCopy::bufferRowLength,
+		"bufferImageHeight", &BufferToImageCopy::bufferImageHeight,
+		"imageAspect", &BufferToImageCopy::imageAspect,
+		"mipLevel", &BufferToImageCopy::mipLevel,
+		"baseArrayLayer", &BufferToImageCopy::baseArrayLayer,
+		"layerCount", &BufferToImageCopy::layerCount,
+		"imageOffsetX", &BufferToImageCopy::imageOffsetX,
+		"imageOffsetY", &BufferToImageCopy::imageOffsetY,
+		"imageOffsetZ", &BufferToImageCopy::imageOffsetZ,
+		"imageWidth", &BufferToImageCopy::imageWidth,
+		"imageHeight", &BufferToImageCopy::imageHeight,
+		"imageDepth", &BufferToImageCopy::imageDepth
+	);
+	luaState.new_usertype<SamplerCreateInfo>(
+		"SamplerCreateInfo",
+		sol::constructors<SamplerCreateInfo()>(),
+		"setMinFilter", &SamplerCreateInfo::setMinFilter,
+		"setMagFilter", &SamplerCreateInfo::setMagFilter,
+		"setAnisotropy", &SamplerCreateInfo::setAnisotropy
+	);
+	luaState.new_usertype<DescriptorPoolCreateInfo>(
+		"DescriptorPoolCreateInfo",
+		sol::constructors<DescriptorPoolCreateInfo()>(),
+		"maxSets", &DescriptorPoolCreateInfo::maxSets,
+		"uniformBufferCount", &DescriptorPoolCreateInfo::uniformBufferCount,
+		"uniformBufferDynamicCount", &DescriptorPoolCreateInfo::uniformBufferDynamicCount,
+		"storageBufferCount", &DescriptorPoolCreateInfo::storageBufferCount,
+		"combinedImageSamplerCount", &DescriptorPoolCreateInfo::combinedImageSamplerCount
+	);
+	luaState.new_usertype<DescriptorSetCreateInfo>(
+		"DescriptorSetCreateInfo",
+		sol::constructors<DescriptorSetCreateInfo()>(),
+		"descriptorPool", &DescriptorSetCreateInfo::descriptorPool,
+		"addBinding", &DescriptorSetCreateInfo::addBinding
+	);
+	luaState.new_usertype<PipelineLayoutCreateInfo>(
+		"PipelineLayoutCreateInfo",
+		sol::constructors<PipelineLayoutCreateInfo()>(),
+		"addPushConstant", &PipelineLayoutCreateInfo::addPushConstant,
+		"addSetLayout", &PipelineLayoutCreateInfo::addSetLayout
+	);
+	luaState.new_usertype<PipelineCreateInfo>(
+		"PipelineCreateInfo",
+		sol::constructors<PipelineCreateInfo()>(),
+		"vertexShaderModule", &PipelineCreateInfo::vertexShaderModule,
+		"fragmentShaderModule", &PipelineCreateInfo::fragmentShaderModule,
+		"pipelineLayout", &PipelineCreateInfo::pipelineLayout,
+		"sampleShadingEnable", &PipelineCreateInfo::sampleShadingEnable,
+		"minSampleShading", &PipelineCreateInfo::minSampleShading,
+		"sampleCount", &PipelineCreateInfo::sampleCount,
+		"depthTestEnable", &PipelineCreateInfo::depthTestEnable,
+		"depthWriteEnable", &PipelineCreateInfo::depthWriteEnable,
+		"depthBoundsTestEnable", &PipelineCreateInfo::depthBoundsTestEnable,
+		"stencilTestEnable", &PipelineCreateInfo::stencilTestEnable,
+		"depthCompareOp", &PipelineCreateInfo::depthCompareOp,
+		"polygonMode", &PipelineCreateInfo::polygonMode,
+		"depthAttachmentFormat", &PipelineCreateInfo::depthAttachmentFormat,
+		"addColorAttachment", &PipelineCreateInfo::addColorAttachment,
+		"addVertexBinding", &PipelineCreateInfo::addVertexBinding,
+		"addVertexAttribute", &PipelineCreateInfo::addVertexAttribute
+	);
+	luaState.new_usertype<CommandBufferSubmitInfo>(
+		"CommandBufferSubmitInfo",
+		sol::constructors<CommandBufferSubmitInfo()>(),
+		"fence", &CommandBufferSubmitInfo::fence,
+		"addWaitSemaphore", &CommandBufferSubmitInfo::addWaitSemaphore,
+		"addSignalSemaphore", &CommandBufferSubmitInfo::addSignalSemaphore
+	);
+	luaState.new_usertype<InstanceInfo>(
+		"InstanceInfo",
+		sol::constructors<InstanceInfo()>()
+
+	);
+	luaState.new_usertype<RenderedInstanceCreateInfo>(
+		"RenderedInstanceCreateInfo",
+		sol::constructors<RenderedInstanceCreateInfo()>(),
+		"mesh", &RenderedInstanceCreateInfo::mesh,
+		"material", &RenderedInstanceCreateInfo::material,
+		"info", &RenderedInstanceCreateInfo::info
+	);
+	luaState.new_usertype<ViewportInfo>(
+		"ViewportInfo",
+		sol::constructors<ViewportInfo()>(),
+		"width", &ViewportInfo::width,
+		"height", &ViewportInfo::height,
+		"offsetX", &ViewportInfo::offsetX,
+		"offsetY", &ViewportInfo::offsetY,
+		"maxDepth", &ViewportInfo::maxDepth,
+		"minDepth", &ViewportInfo::minDepth
+	);
+	luaState.new_usertype<Rect2D>(
+		"Rect2D",
+		sol::constructors<Rect2D()>(),
+		"width", &Rect2D::width,
+		"height", &Rect2D::height,
+		"offsetX", &Rect2D::offsetX,
+		"offsetY", &Rect2D::offsetY
+	);
+	luaState.new_usertype<RenderingInfo>(
+		"RenderingInfo",
+		sol::constructors<RenderingInfo()>(),
+		"setRenderArea", &RenderingInfo::setRenderArea,
+		"setStencilAttachment", &RenderingInfo::setStencilAttachment,
+		"setDepthAttachment", &RenderingInfo::setDepthAttachment,
+		"addColorAttachment", &RenderingInfo::addColorAttachment
+	);
+
+}
+
+void bindRenderingServerToLua(sol::table& rendering, RenderingServer* server) {
+	rendering.set_function("createImage", &RenderingServer::createImage, server);
+	rendering.set_function("cmdTransitionImageLayout", &RenderingServer::cmdTransitionImageLayout, server);
+	rendering.set_function("transitionImageLayout", &RenderingServer::transitionImageLayout, server);
+	rendering.set_function("destroyImage", &RenderingServer::destroyImage, server);
+	rendering.set_function("createImageView", &RenderingServer::createImageView, server);
+	rendering.set_function("destroyImageView", &RenderingServer::destroyImageView, server);
+	rendering.set_function("createBuffer", &RenderingServer::createBuffer, server);
+	rendering.set_function("cmdCopyBuffer", &RenderingServer::cmdCopyBuffer, server);
+	rendering.set_function("copyBuffer", &RenderingServer::copyBuffer, server);
+	rendering.set_function("cmdCopyBufferIntoImage", &RenderingServer::cmdCopyBufferIntoImage, server);
+	rendering.set_function("copyBufferIntoImage", &RenderingServer::copyBufferIntoImage, server);
+	rendering.set_function("destroyBuffer", &RenderingServer::destroyBuffer, server);
+	rendering.set_function("createSampler", &RenderingServer::createSampler, server);
+	rendering.set_function("destroySampler", &RenderingServer::destroySampler, server);
+	rendering.set_function("createShaderModule", &RenderingServer::createShaderModule, server);
+	rendering.set_function("destroyShaderModule", &RenderingServer::destroyShaderModule, server);
+	rendering.set_function("createDescriptorPool", &RenderingServer::createDescriptorPool, server);
+	rendering.set_function("createDescriptorSet", &RenderingServer::createDescriptorSet, server);
+	rendering.set_function("writeBufferToDescriptorSet", &RenderingServer::writeBufferToDescriptorSet, server);
+	rendering.set_function("writeImageToDescriptorSet", &RenderingServer::writeImageToDescriptorSet, server);
+	rendering.set_function("writeSamplerToDescriptorSet", &RenderingServer::writeSamplerToDescriptorSet, server);
+	rendering.set_function("writeCombinedImageSamplerToDescriptorSet", &RenderingServer::writeCombinedImageSamplerToDescriptorSet, server);
+	rendering.set_function("createPipelineLayout", &RenderingServer::createPipelineLayout, server);
+	rendering.set_function("createPipeline", &RenderingServer::createPipeline, server);
+	rendering.set_function("cmdUsePipeline", &RenderingServer::cmdUsePipeline, server);
+	rendering.set_function("destroyPipeline", &RenderingServer::destroyPipeline, server);
+	rendering.set_function("beginRendering", &RenderingServer::beginRendering, server);
+	rendering.set_function("endRendering", &RenderingServer::endRendering, server);
+	rendering.set_function("setActiveViewport", &RenderingServer::setActiveViewport, server);
+	rendering.set_function("setActiveScissor", &RenderingServer::setActiveScissor, server);
+	rendering.set_function("createCommandBuffer", &RenderingServer::createCommandBuffer, server);
+	rendering.set_function("beginCommandBuffer", &RenderingServer::beginCommandBuffer, server);
+	rendering.set_function("endCommandBuffer", &RenderingServer::endCommandBuffer, server);
+	rendering.set_function("destroyCommandBuffer", &RenderingServer::destroyCommandBuffer, server);
+	rendering.set_function("createFence", &RenderingServer::createFence, server);
+	rendering.set_function("destroyFence", &RenderingServer::destroyFence, server);
+	rendering.set_function("createSemaphore", &RenderingServer::createSemaphore, server);
+	rendering.set_function("destroySemaphore", &RenderingServer::destroySemaphore, server);
+	rendering.set_function("submitCommandBuffer", &RenderingServer::submitCommandBuffer, server);
 }

@@ -33,7 +33,7 @@ glm::mat4 Camera::getViewMatrix()
 }
 
 void Camera::debugCamera() {
-    front;right;up;worldUp;position;pitch;yaw;
+    //front;right;up;worldUp;position;pitch;yaw;
 
 }
 

@@ -87,7 +87,7 @@ private:
 };
 
 //forward declaration
-class GLFWwindow;
+struct GLFWwindow;
 
 class CamHandler
 {

@@ -117,8 +117,6 @@ private:
 		swapChainImageFormat = surfaceFormat.format;
 		swapChainExtent = extent;
 
-		VmaAllocationCreateInfo allocationCI{};
-
 		depthImage = Image::create(
 			core,
 			Image::makeCreateInfo(

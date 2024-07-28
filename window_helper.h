@@ -50,7 +50,7 @@ public:
 			InputManager* manager = getInputManager(w);
 			manager->trigger(key, action, mods);
 		};
-		glfwSetKeyCallback(window, callback);
+		glfwSetKeyCallback(this->window, callback);
 	}
 
 };

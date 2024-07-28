@@ -3,10 +3,16 @@
 #include <vector>
 #include <string>
 
+#include <lua.hpp>
+#include <sol/sol.hpp>
+
 #include "core.hpp"
 
 #include "RenderingCreateInfo.hpp"
 #include "RenderingResources.hpp"
+
+// to define anything as : export this to lua
+// name should be a string literal 
 
 //TODO should replace this with an ECS like entt later
 //A lot of the lookups are gonna be looking up for the same resource continously
@@ -257,14 +263,62 @@ public:
 private:
 	RenderingServer::ResourceUser activeResourceUser;
 	void setActiveTagForAll(uint8_t tag) {
+		activeResourceUser = static_cast<RenderingServer::ResourceUser>(tag);
 		this->resources.setActiveResourceTag(tag);
 	}
+
+	struct {
+		std::string scriptPath;
+		sol::state state;
+		sol::table rendering;
+		sol::load_result load;
+		bool initialized = false;
+	} lua;
+	
+	void registerRenderingBindings();
+	
 
 public:
 	ResourceUser activeUser = ResourceUser::NONE;
 
 	void setOperatingUser(RenderingServer::ResourceUser activeUser) {
 		this->setActiveTagForAll(static_cast<uint8_t>(activeUser));
+	}
+
+	void registerRenderingScript(std::string scriptPath) {
+		//lua script
+		if (lua.initialized) {
+			//warn about changing the script
+			std::cout <<
+				"Changing script path from \"" <<
+				lua.scriptPath <<
+				"\" to \"" <<
+				scriptPath <<
+				"\"" <<
+				std::endl;
+		}
+		lua.initialized = true;
+		lua.scriptPath = scriptPath;
+
+		lua.state = sol::state();
+		this->registerRenderingBindings();
+		lua.load = lua.state.load_file(scriptPath);
+	}
+
+	void executeRenderingScript() {
+		sol::protected_function_result renderingResult = lua.load.call();
+		if (!renderingResult.valid()) {
+			//handle error
+			std::cerr <<
+				"Error while executing rendering script: \"" <<
+				lua.scriptPath <<
+				"\"" <<
+				std::endl;
+
+			std::cerr <<
+				(static_cast<sol::error>(renderingResult).what()) <<
+				std::endl;
+		}
 	}
 
 	Rendering::ResourceID createImage(Rendering::ImageCreateInfo createInfo);

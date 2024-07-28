@@ -239,7 +239,7 @@ public:
 
 	void copyFromBuffer(RC<Buffer> buffer, VkBufferImageCopy region) {
 		auto& vku = VulkanUtils::utils();
-		assert((layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL || layout == VK_IMAGE_LAYOUT_GENERAL), "");
+		assert((layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL || layout == VK_IMAGE_LAYOUT_GENERAL) && "invalid image transfer layout");
 		VkCommandBuffer commandBuffer = vku.getCore()->beginSingleTimeCommands(vku.getCommandPool());
 		vkCmdCopyBufferToImage(commandBuffer, buffer->buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 		vku.getCore()->endSingleTimeCommands(vku.getCommandPool(), commandBuffer);

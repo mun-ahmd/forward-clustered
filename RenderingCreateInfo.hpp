@@ -4,71 +4,78 @@
 #include <string>
 #include "EnumsFromStrings.hpp"
 
+#define EXPORTPROP(name)
+#define EXPORTCLASS()
+#define EXPORTTABLE()
+#define EXPORTALL()
+
 namespace Rendering {
+	typedef EXPORTPROP("string") std::string anythingpleaseworksadopsadspa;
+
 	typedef uint32_t ResourceID;
 
-	struct ImageCreateInfo {
-		std::string format;
+	struct EXPORTPROP("") EXPORTCLASS() ImageCreateInfo{
+		std::string EXPORTPROP("") format;
 
 		//for now always assume as both transfer src or dst
 		//bool isTransferSrc = true;
 		//bool isTransferDst = true;
-		bool isColorAttachment = false;
-		bool isDepthAttachment = false;
-		bool isSampled = false;
-		bool isStorage = false;
+		bool EXPORTPROP("") isColorAttachment = false;
+		bool EXPORTPROP("") isDepthAttachment = false;
+		bool EXPORTPROP("") isSampled = false;
+		bool EXPORTPROP("") isStorage = false;
 
-		uint32_t numDimensions = 2;
-		uint32_t width = 1;
-		uint32_t height = 1;
-		uint32_t depth = 1;
+		uint32_t EXPORTPROP("") numDimensions = 2;
+		uint32_t EXPORTPROP("") width = 1;
+		uint32_t EXPORTPROP("") height = 1;
+		uint32_t EXPORTPROP("") depth = 1;
 
-		uint32_t mipLevels = 1;
-		uint32_t arrayLayers = 1;
+		uint32_t EXPORTPROP("") mipLevels = 1;
+		uint32_t EXPORTPROP("") arrayLayers = 1;
 	};
 
-	struct ImageViewCreateInfo {
-		std::string aspectMask;
-		int levelCount;
-		int arrayLayerCount;
+	struct EXPORTPROP("") EXPORTCLASS() ImageViewCreateInfo {
+		std::string EXPORTPROP("") aspectMask;
+		int EXPORTPROP("") levelCount;
+		int EXPORTPROP("") arrayLayerCount;
 	};
 
 
-	struct BufferCreateInfo {
-		uint64_t size;
-		bool createDedicatedMemory;	//gpu local or not
-		bool createMapped;
+	struct EXPORTPROP("") EXPORTCLASS() BufferCreateInfo {
+		uint64_t EXPORTPROP("") size;
+		bool EXPORTPROP("") createDedicatedMemory;	//gpu local or not
+		bool EXPORTPROP("") createMapped;
 	};
 
-	struct BufferCopyInfo {
-		Rendering::ResourceID srcBuffer;
-		Rendering::ResourceID dstBuffer;
-		uint64_t srcOffset;
-		uint64_t dstOffset;
-		uint64_t size;
+	struct EXPORTPROP("") EXPORTCLASS() BufferCopyInfo {
+		Rendering::ResourceID EXPORTPROP("") srcBuffer;
+		Rendering::ResourceID EXPORTPROP("") dstBuffer;
+		uint64_t EXPORTPROP("") srcOffset;
+		uint64_t EXPORTPROP("") dstOffset;
+		uint64_t EXPORTPROP("") size;
 	};
 
-	struct BufferToImageCopy {
-		uint64_t bufferOffset;
-		uint32_t bufferRowLength;
-		uint32_t bufferImageHeight;
+	struct EXPORTPROP("") EXPORTCLASS() BufferToImageCopy {
+		uint64_t EXPORTPROP("") bufferOffset;
+		uint32_t EXPORTPROP("") bufferRowLength;
+		uint32_t EXPORTPROP("") bufferImageHeight;
 		
-		std::string imageAspect;
+		std::string EXPORTPROP("") imageAspect;
 		
-		uint32_t mipLevel;
-		uint32_t baseArrayLayer;
-		uint32_t layerCount;
+		uint32_t EXPORTPROP("") mipLevel;
+		uint32_t EXPORTPROP("") baseArrayLayer;
+		uint32_t EXPORTPROP("") layerCount;
 
-		int32_t imageOffsetX;
-		int32_t imageOffsetY;
-		int32_t imageOffsetZ;
+		int32_t EXPORTPROP("") imageOffsetX;
+		int32_t EXPORTPROP("") imageOffsetY;
+		int32_t EXPORTPROP("") imageOffsetZ;
 
-		uint32_t imageWidth;
-		uint32_t imageHeight;
-		uint32_t imageDepth;
+		uint32_t EXPORTPROP("") imageWidth;
+		uint32_t EXPORTPROP("") imageHeight;
+		uint32_t EXPORTPROP("") imageDepth;
 	};
 
-	struct SamplerCreateInfo {
+	struct EXPORTPROP("") EXPORTCLASS() SamplerCreateInfo {
 		std::array<std::optional<VkFilter>, 2> minMagFilter = {};
 		std::array<std::optional<VkSamplerAddressMode>, 3> uvwAddressMode = {};
 		std::array<std::optional<float>, 3> mipLodBiasMinMax = {};
@@ -112,33 +119,33 @@ namespace Rendering {
 			return ci;
 		}
 
-		void setMinFilter(std::string filter) {
+		void EXPORTPROP("") setMinFilter(std::string filter) {
 			this->minMagFilter[0] = filterFromString(filter);
 		}
-		void setMagFilter(std::string filter) {
+		void EXPORTPROP("") setMagFilter(std::string filter) {
 			this->minMagFilter[1] = filterFromString(filter);
 		}
-		void setAnisotropy(float value) {
+		void EXPORTPROP("") setAnisotropy(float value) {
 			this->maxAnisotropy = value;
 		}
 		//todo complete
 
 	};
 
-	struct DescriptorPoolCreateInfo {
-		uint32_t maxSets;
-		uint32_t uniformBufferCount;
-		uint32_t uniformBufferDynamicCount;
-		uint32_t storageBufferCount;
-		uint32_t combinedImageSamplerCount;
+	struct EXPORTPROP("") EXPORTCLASS() DescriptorPoolCreateInfo {
+		uint32_t EXPORTPROP("") maxSets;
+		uint32_t EXPORTPROP("") uniformBufferCount;
+		uint32_t EXPORTPROP("") uniformBufferDynamicCount;
+		uint32_t EXPORTPROP("") storageBufferCount;
+		uint32_t EXPORTPROP("") combinedImageSamplerCount;
 	};
 
-	struct DescriptorSetCreateInfo {
-		ResourceID descriptorPool;
+	struct EXPORTPROP("") EXPORTCLASS() DescriptorSetCreateInfo {
+		ResourceID EXPORTPROP("") descriptorPool;
 		std::vector<VkDescriptorSetLayoutBinding> bindings;
 		std::vector<VkDescriptorBindingFlags> bindingFlags;
 
-		void addBinding(
+		void EXPORTPROP("") addBinding(
 			int bindingIndex,
 			uint32_t descriptorCount,
 			std::string descriptorType,
@@ -164,49 +171,49 @@ namespace Rendering {
 
 	};
 
-	struct PipelineLayoutCreateInfo {
+	struct EXPORTPROP("") EXPORTCLASS() PipelineLayoutCreateInfo {
 		std::vector<VkPushConstantRange> pushConstants; //modified through methods, not directly
 		std::vector<ResourceID> setsForSetLayouts;
 		//todo add shaderStageFlags
-		void addPushConstant(uint32_t offset, uint32_t size, std::string shaderStageFlags) {
+		void EXPORTPROP("") addPushConstant(uint32_t offset, uint32_t size, std::string shaderStageFlags) {
 			VkPushConstantRange range{};
 			range.offset = offset;
 			range.size = size;
 			range.stageFlags = shaderStageFlagsFromString(shaderStageFlags);
 			this->pushConstants.push_back(range);
 		}
-		void addSetLayout(ResourceID descriptorSet) {
+		void EXPORTPROP("") addSetLayout(ResourceID descriptorSet) {
 			this->setsForSetLayouts.push_back(descriptorSet);
 		}
 	};
 
-	struct PipelineCreateInfo {
-		ResourceID vertexShaderModule;
-		ResourceID fragmentShaderModule;
-		ResourceID pipelineLayout;
+	struct EXPORTPROP("") EXPORTCLASS() PipelineCreateInfo {
+		ResourceID EXPORTPROP("") vertexShaderModule;
+		ResourceID EXPORTPROP("") fragmentShaderModule;
+		ResourceID EXPORTPROP("") pipelineLayout;
 
-		bool sampleShadingEnable;
-		float minSampleShading;
-		uint32_t sampleCount;
+		bool EXPORTPROP("") sampleShadingEnable;
+		float EXPORTPROP("") minSampleShading;
+		uint32_t EXPORTPROP("") sampleCount;
 
-		bool depthTestEnable;
-		bool depthWriteEnable;
-		bool depthBoundsTestEnable;
-		bool stencilTestEnable;
-		std::string depthCompareOp;
+		bool EXPORTPROP("") depthTestEnable;
+		bool EXPORTPROP("") depthWriteEnable;
+		bool EXPORTPROP("") depthBoundsTestEnable;
+		bool EXPORTPROP("") stencilTestEnable;
+		std::string EXPORTPROP("") depthCompareOp;
 
-		std::string polygonMode;
+		std::string EXPORTPROP("") polygonMode;
+
+		std::string EXPORTPROP("") depthAttachmentFormat;
 
 		std::vector<VkFormat> colorAttachmentFormats;
-		std::string depthAttachmentFormat;
-
-		void addColorAttachment(std::string colorAttachmentFormat) {
+		void EXPORTPROP("") addColorAttachment(std::string colorAttachmentFormat) {
 			this->colorAttachmentFormats.push_back(formatFromString(colorAttachmentFormat));
 		}
 
-		std::vector<VkVertexInputBindingDescription> vertexBindings;
 
-		void addVertexBinding(uint32_t binding, uint32_t stride, bool isPerInstance) {
+		std::vector<VkVertexInputBindingDescription> vertexBindings;
+		void EXPORTPROP("") addVertexBinding(uint32_t binding, uint32_t stride, bool isPerInstance) {
 			VkVertexInputBindingDescription vBinding{};
 			vBinding.binding = binding;
 			vBinding.inputRate = isPerInstance ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX;
@@ -214,9 +221,9 @@ namespace Rendering {
 			this->vertexBindings.push_back(vBinding);
 		}
 
-		std::vector<VkVertexInputAttributeDescription> vertexAttributes;
 
-		void addVertexAttribute(uint32_t binding, uint32_t location, uint32_t offset, std::string format) {
+		std::vector<VkVertexInputAttributeDescription> vertexAttributes;
+		void EXPORTPROP("") addVertexAttribute(uint32_t binding, uint32_t location, uint32_t offset, std::string format) {
 			VkVertexInputAttributeDescription vAttribute{};
 			vAttribute.binding = binding;
 			vAttribute.format = formatFromString(format);
@@ -224,22 +231,21 @@ namespace Rendering {
 			vAttribute.offset = offset;
 			this->vertexAttributes.push_back(vAttribute);
 		}
-
-		
 	};
 
-	struct CommandBufferSubmitInfo {
+	struct EXPORTPROP("") EXPORTCLASS() CommandBufferSubmitInfo {
+		ResourceID EXPORTPROP("") fence;
+
 		std::vector<Rendering::ResourceID> waitSemaphores;
 		std::vector<VkPipelineStageFlags> waitStages;
 		std::vector<ResourceID> signalSemaphores;
-		ResourceID fence;
 
-		void addWaitSemaphore(ResourceID semaphore, std::string waitStage) {
+		void EXPORTPROP("") addWaitSemaphore(ResourceID semaphore, std::string waitStage) {
 			this->waitSemaphores.push_back(semaphore);
 			this->waitStages.push_back(pipelineStageFlagsFromString(waitStage));
 		}
 
-		void addSignalSemaphore(ResourceID semaphore) {
+		void EXPORTPROP("") addSignalSemaphore(ResourceID semaphore) {
 			this->signalSemaphores.push_back(semaphore);
 		}
 	};
@@ -260,23 +266,23 @@ namespace Rendering {
 
 	};
 
-	struct InstanceInfo {
+	struct EXPORTPROP("") EXPORTCLASS() InstanceInfo {
 
 	};
 
-	struct RenderedInstanceCreateInfo {
-		ResourceID mesh;
-		ResourceID material;
-		InstanceInfo info;
+	struct EXPORTPROP("") EXPORTCLASS() RenderedInstanceCreateInfo {
+		ResourceID EXPORTPROP("") mesh;
+		ResourceID EXPORTPROP("") material;
+		InstanceInfo EXPORTPROP("") info;
 	};
 
-	struct ViewportInfo {
-		float width;
-		float height;
-		float offsetX;
-		float offsetY;
-		float maxDepth;
-		float minDepth;
+	struct EXPORTPROP("") EXPORTCLASS() ViewportInfo {
+		float EXPORTPROP("") width;
+		float EXPORTPROP("") height;
+		float EXPORTPROP("") offsetX;
+		float EXPORTPROP("") offsetY;
+		float EXPORTPROP("") maxDepth;
+		float EXPORTPROP("") minDepth;
 
 		VkViewport getAsVk() {
 			VkViewport v{};
@@ -290,11 +296,11 @@ namespace Rendering {
 		}
 	};
 
-	struct Rect2D {
-		uint32_t width;
-		uint32_t height;
-		int32_t offsetX;
-		int32_t offsetY;
+	struct EXPORTPROP("") EXPORTCLASS() Rect2D {
+		uint32_t EXPORTPROP("") width;
+		uint32_t EXPORTPROP("") height;
+		int32_t EXPORTPROP("") offsetX;
+		int32_t EXPORTPROP("") offsetY;
 
 		VkRect2D getAsVk() {
 			VkRect2D rect{};
@@ -306,7 +312,7 @@ namespace Rendering {
 		}
 	};
 
-	struct RenderingInfo {
+	struct RenderingInfo EXPORTPROP("") EXPORTCLASS() {
 	
 	private:
 		VkRenderingAttachmentInfo __formInfo__(
@@ -336,20 +342,13 @@ namespace Rendering {
 
 	public:
 		VkRect2D renderArea;
-		void setRenderArea(Rect2D rect) {
+		void EXPORTPROP("") setRenderArea(Rect2D rect) {
 			this->renderArea = rect.getAsVk();
 		}
 
-		std::vector<VkRenderingAttachmentInfo> colorAttachments;
-		std::vector<Rendering::ResourceID> colorAttachmentImageViews;
-		
-		VkRenderingAttachmentInfo depthAttachment;
-		ResourceID depthImageView;
-		
 		VkRenderingAttachmentInfo stencilAttachment;
 		ResourceID stencilImageView;
-
-		void setStencilAttachment(
+		void EXPORTPROP("") setStencilAttachment(
 			Rendering::ResourceID imageView,
 			std::string imageLayout,
 			std::string loadOp,
@@ -364,7 +363,9 @@ namespace Rendering {
 			stencilImageView = imageView;
 		}
 
-		void setDepthAttachment(
+		VkRenderingAttachmentInfo depthAttachment;
+		ResourceID depthImageView;
+		void EXPORTPROP("") setDepthAttachment(
 			Rendering::ResourceID imageView,
 			std::string imageLayout,
 			std::string loadOp,
@@ -379,7 +380,9 @@ namespace Rendering {
 			depthImageView = imageView;
 		}
 
-		void addColorAttachment(
+		std::vector<VkRenderingAttachmentInfo> colorAttachments;
+		std::vector<Rendering::ResourceID> colorAttachmentImageViews;
+		void EXPORTPROP("") addColorAttachment(
 			Rendering::ResourceID imageView,
 			std::string imageLayout,
 			std::string loadOp,

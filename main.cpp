@@ -147,8 +147,7 @@ private:
 				bees |= props.optimalTilingFeatures & feature;
 				honey |= feature;
 			}
-			bool supports = (apples == honey) or (bees == honey);
-			int hello = supports+1;
+			bool supports = (apples == honey) || (bees == honey);
 		}
 	}
 
@@ -358,7 +357,7 @@ private:
 				float camViewF3[3] = { camera.get_front().x, camera.get_front().y, camera.get_front().z };
 				if (ImGui::InputFloat3("camera direction", camViewF3)) {
 					glm::vec3 newFront = glm::normalize(glm::make_vec3(camViewF3));
-					if (glm::all(glm::equal(newFront, glm::vec3(0.0, 0.0, 0.0))));
+					//if (glm::all(glm::equal(newFront, glm::vec3(0.0, 0.0, 0.0))));
 					camera.set_front(newFront);
 				}
 			}

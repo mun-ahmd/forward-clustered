@@ -59,7 +59,7 @@ private:
 			//allot staging buffer to request
 			int allotted = 0;
 			{
-				for (allotted; allotted < this->stagingBuffers.size(); allotted++) {
+				for (; allotted < this->stagingBuffers.size(); allotted++) {
 					if (this->isBufferFree[allotted]) {
 						break;
 					}
@@ -86,7 +86,7 @@ private:
 
 					if (imageData->getResolution() != glm::ivec2(req.resolution)) {
 						//need to resize image
-						imageData = std::move(imageData->resize(req.resolution.x, req.resolution.y));
+						imageData = imageData->resize(req.resolution.x, req.resolution.y);
 					}
 
 					memcpy(
@@ -106,7 +106,7 @@ private:
 
 					if (imageData->getResolution() != glm::ivec2(req.resolution)) {
 						//need to resize image
-						imageData = std::move(imageData->resize(req.resolution.x, req.resolution.y));
+						imageData = imageData->resize(req.resolution.x, req.resolution.y);
 					}
 
 					memcpy(
@@ -131,8 +131,17 @@ public:
 
 	//maxDimensions apply for float images, so normal byte per component images have a larger upper bound
 	AsyncImageLoader(glm::ivec3 maxDimensions, int maxNumComponents, int numBuffers)
-		: maxDimensions(maxDimensions), maxNumComponents(maxNumComponents), numBuffers(numBuffers),
-		bufferSizeBytes((size_t)maxDimensions.x * maxDimensions.y * maxDimensions.z * maxNumComponents * sizeof(float))
+		: 
+		maxDimensions(maxDimensions),
+		maxNumComponents(maxNumComponents),
+		bufferSizeBytes(
+			(size_t)maxDimensions.x *
+			maxDimensions.y *
+			maxDimensions.z *
+			maxNumComponents *
+			sizeof(float)
+		),
+		numBuffers(numBuffers)
 	{}
 
 	~AsyncImageLoader() {
@@ -163,10 +172,10 @@ public:
 		assert(isWorkerRunning == false);
 		
 		stopWorker = false;
- 		this->worker = std::move(std::thread(
+ 		this->worker = std::thread(
 			&AsyncImageLoader::workerThread,
 			this
-		));
+		);
 		isWorkerRunning = true;
 	}
 
