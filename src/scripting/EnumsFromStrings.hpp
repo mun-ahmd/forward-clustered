@@ -584,4 +584,35 @@ namespace Rendering {
 	inline VkShaderStageFlags shaderStageFlagsFromString(std::string enumName) {
 	    return getBitFlagsFromString(VkShaderStageFlagBitsMap, enumName);
 	}
+	inline static std::unordered_map<std::string, VkAccessFlags> VkAccessFlagBitsMap = {
+		{"none", VK_ACCESS_NONE},
+		{"indirectCommandRead", VK_ACCESS_INDIRECT_COMMAND_READ_BIT},
+		{"indexRead", VK_ACCESS_INDEX_READ_BIT},
+		{"vertexAttributeRead", VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT},
+		{"uniformRead", VK_ACCESS_UNIFORM_READ_BIT},
+		{"inputAttachmentRead", VK_ACCESS_INPUT_ATTACHMENT_READ_BIT},
+		{"shaderRead", VK_ACCESS_SHADER_READ_BIT},
+		{"shaderWrite", VK_ACCESS_SHADER_WRITE_BIT},
+		{"colorAttachmentRead", VK_ACCESS_COLOR_ATTACHMENT_READ_BIT},
+		{"colorAttachmentWrite", VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT},
+		{"depthStencilAttachmentRead", VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT},
+		{"depthStencilAttachmentWrite", VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT},
+		{"transferRead", VK_ACCESS_TRANSFER_READ_BIT},
+		{"transferWrite", VK_ACCESS_TRANSFER_WRITE_BIT},
+		{"hostRead", VK_ACCESS_HOST_READ_BIT},
+		{"hostWrite", VK_ACCESS_HOST_WRITE_BIT},
+		{"memoryRead", VK_ACCESS_MEMORY_READ_BIT},
+		{"memoryWrite", VK_ACCESS_MEMORY_WRITE_BIT},
+	};
+	inline VkAccessFlags accessFlagsFromString(std::string enumName) {
+	    return getBitFlagsFromString(VkAccessFlagBitsMap, enumName);
+	}
+	inline static std::unordered_map<std::string, VkIndexType> VkIndexTypeMap = {
+		{"uint16", VK_INDEX_TYPE_UINT16},
+		{"uint32", VK_INDEX_TYPE_UINT32},
+		{"noneKhr", VK_INDEX_TYPE_NONE_KHR},
+	};
+	inline VkIndexType indexTypeFromString(std::string enumName) {
+	    return getEnumFromString(VkIndexTypeMap, enumName);
+	}
 }

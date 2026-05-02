@@ -2,7 +2,9 @@
 #include <stdint.h>
 #include <vector>
 #include <string>
+#include <cstring>
 #include "scripting/EnumsFromStrings.hpp"
+#include <sol/sol.hpp>
 
 #define EXPORTPROP(name)
 #define EXPORTCLASS()
@@ -154,8 +156,8 @@ namespace Rendering {
 		) {
 			VkDescriptorSetLayoutBinding binding{};
 			{
-				binding.binding = 0;
-				binding.descriptorCount = 1;
+				binding.binding = bindingIndex;
+				binding.descriptorCount = descriptorCount;
 				binding.descriptorType = descriptorTypeFromString(descriptorType);
 				binding.stageFlags = shaderStageFlagsFromString(shaderStages);
 			}
@@ -209,6 +211,16 @@ namespace Rendering {
 		std::vector<VkFormat> colorAttachmentFormats;
 		void EXPORTPROP("") addColorAttachment(std::string colorAttachmentFormat) {
 			this->colorAttachmentFormats.push_back(formatFromString(colorAttachmentFormat));
+			// default to no blending for this attachment
+			this->colorBlendEnabled.push_back(false);
+		}
+
+		std::vector<bool> colorBlendEnabled;
+		void EXPORTPROP("") addColorBlendAttachment(bool blendEnable) {
+			// override blend state for the last added color attachment
+			if (!this->colorBlendEnabled.empty()) {
+				this->colorBlendEnabled.back() = blendEnable;
+			}
 		}
 
 
@@ -248,6 +260,54 @@ namespace Rendering {
 		void EXPORTPROP("") addSignalSemaphore(ResourceID semaphore) {
 			this->signalSemaphores.push_back(semaphore);
 		}
+	};
+
+	struct EXPORTPROP("") EXPORTCLASS() ComputePipelineCreateInfo {
+		ResourceID EXPORTPROP("") computeShaderModule;
+		ResourceID EXPORTPROP("") pipelineLayout;
+	};
+
+	struct EXPORTPROP("") EXPORTCLASS() LuaBuffer {
+		std::vector<uint8_t> data;
+
+		void EXPORTPROP("") resize(uint32_t size) {
+			data.resize(size, 0);
+		}
+		void EXPORTPROP("") setFloat(uint32_t offset, float v) {
+			assert(offset + sizeof(float) <= data.size());
+			std::memcpy(data.data() + offset, &v, sizeof(float));
+		}
+		void EXPORTPROP("") setVec4(uint32_t offset, float x, float y, float z, float w) {
+			assert(offset + 4 * sizeof(float) <= data.size());
+			float vals[4] = {x, y, z, w};
+			std::memcpy(data.data() + offset, vals, 4 * sizeof(float));
+		}
+		void EXPORTPROP("") setMat4(uint32_t offset, sol::table mat16) {
+			assert(offset + 16 * sizeof(float) <= data.size());
+			for (int i = 0; i < 16; i++) {
+				float v = mat16[i + 1]; // Lua tables are 1-indexed
+				std::memcpy(data.data() + offset + i * sizeof(float), &v, sizeof(float));
+			}
+		}
+	};
+
+	struct EXPORTPROP("") EXPORTCLASS() BlitImageInfo {
+		std::string EXPORTPROP("") aspectMask;
+		std::string EXPORTPROP("") filter;   // "nearest" | "linear"
+		std::string EXPORTPROP("") srcLayout = "transferSrcOptimal";
+		std::string EXPORTPROP("") dstLayout = "transferDstOptimal";
+
+		uint32_t EXPORTPROP("") srcMipLevel = 0;
+		uint32_t EXPORTPROP("") srcBaseArrayLayer = 0;
+		uint32_t EXPORTPROP("") srcLayerCount = 1;
+		int32_t EXPORTPROP("") srcX0 = 0, srcY0 = 0, srcZ0 = 0;
+		int32_t EXPORTPROP("") srcX1 = 0, srcY1 = 0, srcZ1 = 1;
+
+		uint32_t EXPORTPROP("") dstMipLevel = 0;
+		uint32_t EXPORTPROP("") dstBaseArrayLayer = 0;
+		uint32_t EXPORTPROP("") dstLayerCount = 1;
+		int32_t EXPORTPROP("") dstX0 = 0, dstY0 = 0, dstZ0 = 0;
+		int32_t EXPORTPROP("") dstX1 = 0, dstY1 = 0, dstZ1 = 1;
 	};
 
 	struct LightProperties {

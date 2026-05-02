@@ -460,15 +460,13 @@ ResourceID RenderingServer::createBuffer(BufferCreateInfo info) {
 	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	bufferInfo.size = info.size;
 
-	//because on desktop gpus I have read usage flags do not matter much
-	//setting all, if it causes issues, will add more settings in the create info
-	//but overall will move away from enums in this api
-	//leaving out VK_BUFFER_USAGE_INDEX_BUFFER_BIT and VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
 	bufferInfo.usage =
 		VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
 		VK_BUFFER_USAGE_TRANSFER_DST_BIT |
 		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+		VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
 
 	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -1018,14 +1016,30 @@ ResourceID RenderingServer::createPipeline(PipelineCreateInfo info) {
 	pipelineInfo.stageCount = 2;
 	pipelineInfo.pStages = shaderStages;
 
+	std::vector<VkPipelineColorBlendAttachmentState> blendAttachments;
+	for (size_t i = 0; i < info.colorAttachmentFormats.size(); i++) {
+		VkPipelineColorBlendAttachmentState blendState{};
+		blendState.colorWriteMask =
+			VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+			VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+		blendState.blendEnable = (i < info.colorBlendEnabled.size()) ? info.colorBlendEnabled[i] : VK_FALSE;
+		blendAttachments.push_back(blendState);
+	}
+
+	VkPipelineColorBlendStateCreateInfo colorBlending{};
+	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	colorBlending.logicOpEnable = VK_FALSE;
+	colorBlending.logicOp = VK_LOGIC_OP_COPY;
+	colorBlending.attachmentCount = static_cast<uint32_t>(blendAttachments.size());
+	colorBlending.pAttachments = blendAttachments.data();
+
 	pipelineInfo.pVertexInputState = &vertexInputInfo;
 	pipelineInfo.pInputAssemblyState = &inputAssembly;
 	pipelineInfo.pViewportState = &viewportState;
 	pipelineInfo.pRasterizationState = &rasterizer;
 	pipelineInfo.pMultisampleState = &multisampling;
-	pipelineInfo.pDepthStencilState = nullptr; // Optional
-	//pipelineInfo.pColorBlendState = &colorBlending;
 	pipelineInfo.pDepthStencilState = &depthStencilCI;
+	pipelineInfo.pColorBlendState = &colorBlending;
 	pipelineInfo.pDynamicState = &dynamicState;
 
 	pipelineInfo.layout = this->resources.get<PipelineLayout>(info.pipelineLayout).layout;
@@ -1038,13 +1052,15 @@ ResourceID RenderingServer::createPipeline(PipelineCreateInfo info) {
 	Rendering::Pipeline pipeline{};
 	pipeline.layout = pipelineInfo.layout;
 	pipeline.layoutID = info.pipelineLayout;
+	pipeline.bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	pipeline.pipeline = core->createGraphicsPipeline(pipelineInfo);
 
 	return this->resources.add(pipeline);
 }
 
 void RenderingServer::cmdUsePipeline(ResourceID pipeline) {
-	vkCmdBindPipeline(activeCBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, this->resources.get<Pipeline>(pipeline).pipeline);
+	Pipeline p = this->resources.get<Pipeline>(pipeline);
+	vkCmdBindPipeline(activeCBuf, p.bindPoint, p.pipeline);
 }
 
 void RenderingServer::destroyPipeline(ResourceID pipeline) {
@@ -1186,6 +1202,178 @@ void RenderingServer::submitCommandBuffer(
 }
 
 
+void RenderingServer::cmdDraw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) {
+	vkCmdDraw(activeCBuf, vertexCount, instanceCount, firstVertex, firstInstance);
+}
+
+void RenderingServer::cmdDrawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) {
+	vkCmdDrawIndexed(activeCBuf, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
+}
+
+void RenderingServer::cmdBindVertexBuffer(ResourceID bufferID, uint32_t binding, uint64_t offset) {
+	VkBuffer buf = this->resources.get<Buffer>(bufferID).buffer;
+	VkDeviceSize off = static_cast<VkDeviceSize>(offset);
+	vkCmdBindVertexBuffers(activeCBuf, binding, 1, &buf, &off);
+}
+
+void RenderingServer::cmdBindIndexBuffer(ResourceID bufferID, uint64_t offset, std::string indexType) {
+	VkBuffer buf = this->resources.get<Buffer>(bufferID).buffer;
+	vkCmdBindIndexBuffer(activeCBuf, buf, static_cast<VkDeviceSize>(offset), indexTypeFromString(indexType));
+}
+
+void RenderingServer::cmdBindDescriptorSets(
+	std::string bindPointStr,
+	ResourceID pipelineLayoutID,
+	uint32_t firstSet,
+	std::vector<ResourceID> sets,
+	std::vector<uint32_t> dynamicOffsets
+) {
+	VkPipelineBindPoint bindPoint = (bindPointStr == "compute")
+		? VK_PIPELINE_BIND_POINT_COMPUTE
+		: VK_PIPELINE_BIND_POINT_GRAPHICS;
+	VkPipelineLayout layout = this->resources.get<PipelineLayout>(pipelineLayoutID).layout;
+
+	std::vector<VkDescriptorSet> vkSets;
+	vkSets.reserve(sets.size());
+	for (ResourceID id : sets) {
+		vkSets.push_back(this->resources.get<DescriptorSet>(id).set);
+	}
+
+	vkCmdBindDescriptorSets(
+		activeCBuf,
+		bindPoint,
+		layout,
+		firstSet,
+		static_cast<uint32_t>(vkSets.size()),
+		vkSets.data(),
+		static_cast<uint32_t>(dynamicOffsets.size()),
+		dynamicOffsets.empty() ? nullptr : dynamicOffsets.data()
+	);
+}
+
+void RenderingServer::cmdPushConstants(
+	ResourceID pipelineLayoutID,
+	std::string shaderStages,
+	uint32_t offset,
+	Rendering::LuaBuffer data
+) {
+	VkPipelineLayout layout = this->resources.get<PipelineLayout>(pipelineLayoutID).layout;
+	vkCmdPushConstants(
+		activeCBuf,
+		layout,
+		shaderStageFlagsFromString(shaderStages),
+		offset,
+		static_cast<uint32_t>(data.data.size()),
+		data.data.data()
+	);
+}
+
+void RenderingServer::cmdDispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ) {
+	vkCmdDispatch(activeCBuf, groupsX, groupsY, groupsZ);
+}
+
+ResourceID RenderingServer::createComputePipeline(ComputePipelineCreateInfo info) {
+	VkPipelineShaderStageCreateInfo stageInfo{};
+	stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	stageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+	stageInfo.module = this->resources.get<ShaderModule>(info.computeShaderModule).shaderModule;
+	stageInfo.pName = "main";
+
+	VkComputePipelineCreateInfo pipelineInfo{};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+	pipelineInfo.stage = stageInfo;
+	pipelineInfo.layout = this->resources.get<PipelineLayout>(info.pipelineLayout).layout;
+
+	Rendering::Pipeline pipeline{};
+	pipeline.layout = pipelineInfo.layout;
+	pipeline.layoutID = info.pipelineLayout;
+	pipeline.bindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
+
+	if (vkCreateComputePipelines(core->device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline.pipeline) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create compute pipeline!");
+	}
+
+	return this->resources.add(pipeline);
+}
+
+void RenderingServer::cmdImageBarrier(
+	ResourceID imageID,
+	std::string srcStage,
+	std::string dstStage,
+	std::string srcAccess,
+	std::string dstAccess,
+	std::string oldLayout,
+	std::string newLayout,
+	std::string aspectMask
+) {
+	Image img = this->resources.get<Image>(imageID);
+
+	VkImageMemoryBarrier barrier{};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.oldLayout = imageLayoutFromString(oldLayout);
+	barrier.newLayout = imageLayoutFromString(newLayout);
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = img.image;
+	barrier.subresourceRange.aspectMask = imageAspectFlagsFromString(aspectMask);
+	barrier.subresourceRange.baseMipLevel = 0;
+	barrier.subresourceRange.levelCount = img.mipLevels;
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = img.arrayLayers;
+	barrier.srcAccessMask = accessFlagsFromString(srcAccess);
+	barrier.dstAccessMask = accessFlagsFromString(dstAccess);
+
+	vkCmdPipelineBarrier(
+		activeCBuf,
+		pipelineStageFlagsFromString(srcStage),
+		pipelineStageFlagsFromString(dstStage),
+		0,
+		0, nullptr,
+		0, nullptr,
+		1, &barrier
+	);
+}
+
+void RenderingServer::cmdBlitImage(ResourceID srcID, ResourceID dstID, BlitImageInfo info) {
+	Image src = this->resources.get<Image>(srcID);
+	Image dst = this->resources.get<Image>(dstID);
+
+	VkImageAspectFlags aspect = imageAspectFlagsFromString(info.aspectMask);
+
+	VkImageBlit blit{};
+	blit.srcSubresource.aspectMask = aspect;
+	blit.srcSubresource.mipLevel = info.srcMipLevel;
+	blit.srcSubresource.baseArrayLayer = info.srcBaseArrayLayer;
+	blit.srcSubresource.layerCount = info.srcLayerCount;
+	blit.srcOffsets[0] = {info.srcX0, info.srcY0, info.srcZ0};
+	blit.srcOffsets[1] = {info.srcX1, info.srcY1, info.srcZ1};
+
+	blit.dstSubresource.aspectMask = aspect;
+	blit.dstSubresource.mipLevel = info.dstMipLevel;
+	blit.dstSubresource.baseArrayLayer = info.dstBaseArrayLayer;
+	blit.dstSubresource.layerCount = info.dstLayerCount;
+	blit.dstOffsets[0] = {info.dstX0, info.dstY0, info.dstZ0};
+	blit.dstOffsets[1] = {info.dstX1, info.dstY1, info.dstZ1};
+
+	vkCmdBlitImage(
+		activeCBuf,
+		src.image, imageLayoutFromString(info.srcLayout),
+		dst.image, imageLayoutFromString(info.dstLayout),
+		1, &blit,
+		filterFromString(info.filter)
+	);
+}
+
+void RenderingServer::waitForFence(ResourceID fenceID) {
+	VkFence fence = this->resources.get<Fence>(fenceID).fence;
+	vkWaitForFences(core->device, 1, &fence, VK_TRUE, UINT64_MAX);
+}
+
+void RenderingServer::resetFence(ResourceID fenceID) {
+	VkFence fence = this->resources.get<Fence>(fenceID).fence;
+	vkResetFences(core->device, 1, &fence);
+}
+
 void bindRenderingCreateInfoToLua(sol::state& luaState);
 void bindRenderingServerToLua(sol::table& rendering, RenderingServer* server);
 
@@ -1298,8 +1486,49 @@ void bindRenderingCreateInfoToLua(sol::state& luaState) {
 		"polygonMode", &PipelineCreateInfo::polygonMode,
 		"depthAttachmentFormat", &PipelineCreateInfo::depthAttachmentFormat,
 		"addColorAttachment", &PipelineCreateInfo::addColorAttachment,
+		"addColorBlendAttachment", &PipelineCreateInfo::addColorBlendAttachment,
 		"addVertexBinding", &PipelineCreateInfo::addVertexBinding,
 		"addVertexAttribute", &PipelineCreateInfo::addVertexAttribute
+	);
+	luaState.new_usertype<ComputePipelineCreateInfo>(
+		"ComputePipelineCreateInfo",
+		sol::constructors<ComputePipelineCreateInfo()>(),
+		"computeShaderModule", &ComputePipelineCreateInfo::computeShaderModule,
+		"pipelineLayout", &ComputePipelineCreateInfo::pipelineLayout
+	);
+	luaState.new_usertype<LuaBuffer>(
+		"LuaBuffer",
+		sol::constructors<LuaBuffer()>(),
+		"resize", &LuaBuffer::resize,
+		"setFloat", &LuaBuffer::setFloat,
+		"setVec4", &LuaBuffer::setVec4,
+		"setMat4", &LuaBuffer::setMat4
+	);
+	luaState.new_usertype<BlitImageInfo>(
+		"BlitImageInfo",
+		sol::constructors<BlitImageInfo()>(),
+		"aspectMask", &BlitImageInfo::aspectMask,
+		"filter", &BlitImageInfo::filter,
+		"srcLayout", &BlitImageInfo::srcLayout,
+		"dstLayout", &BlitImageInfo::dstLayout,
+		"srcMipLevel", &BlitImageInfo::srcMipLevel,
+		"srcBaseArrayLayer", &BlitImageInfo::srcBaseArrayLayer,
+		"srcLayerCount", &BlitImageInfo::srcLayerCount,
+		"srcX0", &BlitImageInfo::srcX0,
+		"srcY0", &BlitImageInfo::srcY0,
+		"srcZ0", &BlitImageInfo::srcZ0,
+		"srcX1", &BlitImageInfo::srcX1,
+		"srcY1", &BlitImageInfo::srcY1,
+		"srcZ1", &BlitImageInfo::srcZ1,
+		"dstMipLevel", &BlitImageInfo::dstMipLevel,
+		"dstBaseArrayLayer", &BlitImageInfo::dstBaseArrayLayer,
+		"dstLayerCount", &BlitImageInfo::dstLayerCount,
+		"dstX0", &BlitImageInfo::dstX0,
+		"dstY0", &BlitImageInfo::dstY0,
+		"dstZ0", &BlitImageInfo::dstZ0,
+		"dstX1", &BlitImageInfo::dstX1,
+		"dstY1", &BlitImageInfo::dstY1,
+		"dstZ1", &BlitImageInfo::dstZ1
 	);
 	luaState.new_usertype<CommandBufferSubmitInfo>(
 		"CommandBufferSubmitInfo",
@@ -1374,18 +1603,30 @@ void bindRenderingServerToLua(sol::table& rendering, RenderingServer* server) {
 	rendering.set_function("writeCombinedImageSamplerToDescriptorSet", &RenderingServer::writeCombinedImageSamplerToDescriptorSet, server);
 	rendering.set_function("createPipelineLayout", &RenderingServer::createPipelineLayout, server);
 	rendering.set_function("createPipeline", &RenderingServer::createPipeline, server);
+	rendering.set_function("createComputePipeline", &RenderingServer::createComputePipeline, server);
 	rendering.set_function("cmdUsePipeline", &RenderingServer::cmdUsePipeline, server);
 	rendering.set_function("destroyPipeline", &RenderingServer::destroyPipeline, server);
 	rendering.set_function("beginRendering", &RenderingServer::beginRendering, server);
 	rendering.set_function("endRendering", &RenderingServer::endRendering, server);
 	rendering.set_function("setActiveViewport", &RenderingServer::setActiveViewport, server);
 	rendering.set_function("setActiveScissor", &RenderingServer::setActiveScissor, server);
+	rendering.set_function("cmdDraw", &RenderingServer::cmdDraw, server);
+	rendering.set_function("cmdDrawIndexed", &RenderingServer::cmdDrawIndexed, server);
+	rendering.set_function("cmdBindVertexBuffer", &RenderingServer::cmdBindVertexBuffer, server);
+	rendering.set_function("cmdBindIndexBuffer", &RenderingServer::cmdBindIndexBuffer, server);
+	rendering.set_function("cmdBindDescriptorSets", &RenderingServer::cmdBindDescriptorSets, server);
+	rendering.set_function("cmdPushConstants", &RenderingServer::cmdPushConstants, server);
+	rendering.set_function("cmdDispatch", &RenderingServer::cmdDispatch, server);
+	rendering.set_function("cmdImageBarrier", &RenderingServer::cmdImageBarrier, server);
+	rendering.set_function("cmdBlitImage", &RenderingServer::cmdBlitImage, server);
 	rendering.set_function("createCommandBuffer", &RenderingServer::createCommandBuffer, server);
 	rendering.set_function("beginCommandBuffer", &RenderingServer::beginCommandBuffer, server);
 	rendering.set_function("endCommandBuffer", &RenderingServer::endCommandBuffer, server);
 	rendering.set_function("destroyCommandBuffer", &RenderingServer::destroyCommandBuffer, server);
 	rendering.set_function("createFence", &RenderingServer::createFence, server);
 	rendering.set_function("destroyFence", &RenderingServer::destroyFence, server);
+	rendering.set_function("waitForFence", &RenderingServer::waitForFence, server);
+	rendering.set_function("resetFence", &RenderingServer::resetFence, server);
 	rendering.set_function("createSemaphore", &RenderingServer::createSemaphore, server);
 	rendering.set_function("destroySemaphore", &RenderingServer::destroySemaphore, server);
 	rendering.set_function("submitCommandBuffer", &RenderingServer::submitCommandBuffer, server);

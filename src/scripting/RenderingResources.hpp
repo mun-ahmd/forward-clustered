@@ -62,5 +62,6 @@ namespace Rendering {
 		VkPipeline pipeline;
 		VkPipelineLayout layout;
 		ResourceID layoutID;
+		VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	};
 };

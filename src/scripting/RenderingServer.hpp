@@ -408,6 +408,7 @@ public:
 
 	Rendering::ResourceID createPipelineLayout(Rendering::PipelineLayoutCreateInfo info);
 	Rendering::ResourceID createPipeline(Rendering::PipelineCreateInfo createInfo);
+	Rendering::ResourceID createComputePipeline(Rendering::ComputePipelineCreateInfo createInfo);
 	void cmdUsePipeline(Rendering::ResourceID pipeline);
 	void destroyPipeline(Rendering::ResourceID pipeline);
 
@@ -417,6 +418,40 @@ public:
 	void setActiveViewport(uint32_t index, Rendering::ViewportInfo info);
 	void setActiveScissor(uint32_t index, Rendering::Rect2D info);
 
+	void cmdDraw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance);
+	void cmdDrawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance);
+
+	void cmdBindVertexBuffer(Rendering::ResourceID buffer, uint32_t binding, uint64_t offset);
+	void cmdBindIndexBuffer(Rendering::ResourceID buffer, uint64_t offset, std::string indexType);
+	void cmdBindDescriptorSets(
+		std::string bindPoint,
+		Rendering::ResourceID pipelineLayout,
+		uint32_t firstSet,
+		std::vector<Rendering::ResourceID> sets,
+		std::vector<uint32_t> dynamicOffsets
+	);
+
+	void cmdPushConstants(
+		Rendering::ResourceID pipelineLayout,
+		std::string shaderStages,
+		uint32_t offset,
+		Rendering::LuaBuffer data
+	);
+
+	void cmdDispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ);
+
+	void cmdImageBarrier(
+		Rendering::ResourceID image,
+		std::string srcStage,
+		std::string dstStage,
+		std::string srcAccess,
+		std::string dstAccess,
+		std::string oldLayout,
+		std::string newLayout,
+		std::string aspectMask
+	);
+
+	void cmdBlitImage(Rendering::ResourceID src, Rendering::ResourceID dst, Rendering::BlitImageInfo info);
 
 	Rendering::ResourceID createCommandBuffer();
 	//makes this one the active commandbuffer, error if one is already going on
@@ -426,6 +461,8 @@ public:
 
 	Rendering::ResourceID createFence(bool createSignalled);
 	void destroyFence(Rendering::ResourceID fence);
+	void waitForFence(Rendering::ResourceID fence);
+	void resetFence(Rendering::ResourceID fence);
 	Rendering::ResourceID createSemaphore();
 	void destroySemaphore(Rendering::ResourceID semaphore);
 	void submitCommandBuffer(Rendering::ResourceID commandBuffer, Rendering::CommandBufferSubmitInfo submitInfo);
