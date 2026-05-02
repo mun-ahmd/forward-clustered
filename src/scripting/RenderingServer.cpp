@@ -403,7 +403,9 @@ void RenderingServer::transitionImageLayout(
 
 void RenderingServer::destroyImage(Rendering::ResourceID image) {
 	Image img = this->resources.get<Image>(image);
-	vmaDestroyImage(core->allocator, img.image, img.allocation);
+	if (!img.isSwapchainImage) {
+		vmaDestroyImage(core->allocator, img.image, img.allocation);
+	}
 	this->resources.remove<Image>(image);
 }
 
@@ -637,7 +639,7 @@ ResourceID RenderingServer::createCommandBuffer() {
 }
 
 void RenderingServer::beginCommandBuffer(ResourceID cbuf, bool isOneTimeSubmit) {
-	assert(this->activeCBufResourceID == 0);
+	assert(this->activeCBufResourceID == 0 && !this->hasInjectedCBuf);
 	this->activeCBufResourceID = cbuf;
 	this->activeCBuf = this->resources.get<CommandBuffer>(cbuf).buffer;
 
@@ -1364,6 +1366,37 @@ void RenderingServer::cmdBlitImage(ResourceID srcID, ResourceID dstID, BlitImage
 	);
 }
 
+void RenderingServer::init() {
+	core = VulkanUtils::utils().getCore();
+	commandPool = VulkanUtils::utils().getCommandPool();
+	registerResourceTypes();
+}
+
+void RenderingServer::setRenderFrameCallback(sol::protected_function fn) {
+	renderFrameCallback = std::move(fn);
+}
+
+void RenderingServer::callRenderFrame(uint32_t frameIndex, uint32_t imageIndex, VkCommandBuffer externalCBuf) {
+	currentSwapchainImageIndex = imageIndex;
+	hasInjectedCBuf = true;
+	activeCBuf = externalCBuf;
+
+	if (renderFrameCallback.valid()) {
+		sol::protected_function_result result = renderFrameCallback(frameIndex);
+		if (!result.valid()) {
+			sol::error err = result;
+			std::cerr << "Error in renderFrame callback: " << err.what() << std::endl;
+		}
+	}
+
+	activeCBuf = VK_NULL_HANDLE;
+	hasInjectedCBuf = false;
+}
+
+// connectSwapchain, getSwapchainWidth/Height/Format, acquireNextSwapchainImage,
+// and presentSwapchainImage are implemented in RenderingServerSwapchain.cpp to
+// avoid the Rendering::Image vs ::Image name clash that swapchain.hpp introduces.
+
 void RenderingServer::waitForFence(ResourceID fenceID) {
 	VkFence fence = this->resources.get<Fence>(fenceID).fence;
 	vkWaitForFences(core->device, 1, &fence, VK_TRUE, UINT64_MAX);
@@ -1386,6 +1419,15 @@ void RenderingServer::registerRenderingBindings()
 }
 
 void bindRenderingCreateInfoToLua(sol::state& luaState) {
+	luaState.new_usertype<FrameStartInfo>(
+		"FrameStartInfo",
+		sol::constructors<FrameStartInfo()>(),
+		"swapchainImage",     &FrameStartInfo::swapchainImage,
+		"swapchainImageView", &FrameStartInfo::swapchainImageView,
+		"imageIndex",         &FrameStartInfo::imageIndex,
+		"swapchainWidth",     &FrameStartInfo::swapchainWidth,
+		"swapchainHeight",    &FrameStartInfo::swapchainHeight
+	);
 	luaState.new_usertype<ImageCreateInfo>(
 		"ImageCreateInfo",
 		sol::constructors<ImageCreateInfo()>(),
@@ -1630,4 +1672,10 @@ void bindRenderingServerToLua(sol::table& rendering, RenderingServer* server) {
 	rendering.set_function("createSemaphore", &RenderingServer::createSemaphore, server);
 	rendering.set_function("destroySemaphore", &RenderingServer::destroySemaphore, server);
 	rendering.set_function("submitCommandBuffer", &RenderingServer::submitCommandBuffer, server);
+	rendering.set_function("getSwapchainWidth",          &RenderingServer::getSwapchainWidth,          server);
+	rendering.set_function("getSwapchainHeight",         &RenderingServer::getSwapchainHeight,         server);
+	rendering.set_function("getSwapchainFormat",         &RenderingServer::getSwapchainFormat,         server);
+	rendering.set_function("setRenderFrameCallback",     &RenderingServer::setRenderFrameCallback,     server);
+	rendering.set_function("acquireNextSwapchainImage",  &RenderingServer::acquireNextSwapchainImage,  server);
+	rendering.set_function("presentSwapchainImage",      &RenderingServer::presentSwapchainImage,      server);
 }

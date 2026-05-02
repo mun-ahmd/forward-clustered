@@ -1,4 +1,5 @@
 #pragma once
+#include <cstring>
 #include "core/core.hpp"
 
 struct BufferCopyInfo {

@@ -6,6 +6,7 @@
 #include <optional>
 #include <memory>
 #include <iostream>
+#include <cstring>
 
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>

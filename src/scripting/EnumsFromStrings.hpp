@@ -615,4 +615,10 @@ namespace Rendering {
 	inline VkIndexType indexTypeFromString(std::string enumName) {
 	    return getEnumFromString(VkIndexTypeMap, enumName);
 	}
+	inline std::string formatToString(VkFormat format) {
+	    for (auto& [key, val] : VkFormatMap) {
+	        if (val == format) return key;
+	    }
+	    return "undefined";
+	}
 }

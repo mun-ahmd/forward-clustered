@@ -18,6 +18,7 @@ namespace Rendering {
 		uint32_t arrayLayers;
 
 		VmaAllocation allocation;
+		bool isSwapchainImage = false;
 	};
 
 	struct ImageView {

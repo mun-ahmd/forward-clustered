@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cmath>
 #include <optional>
 #include "core/vulkan_utils.hpp"
 #include "core/buffer.hpp"

@@ -13,6 +13,8 @@
 #include "scripting/RenderingCreateInfo.hpp"
 #include "scripting/RenderingResources.hpp"
 
+class SwapChain; // full definition in core/swapchain.hpp, included only in the .cpp
+
 // to define anything as : export this to lua
 // name should be a string literal 
 
@@ -238,6 +240,16 @@ private:
 	//	return this->resources.getResourceStore<Rendering::Fence>();
 	//}
 	
+	// Swapchain state set by connectSwapchain
+	SwapChain* connectedSwapchain = nullptr;
+	std::vector<Rendering::ResourceID> swapchainImageIDs;
+	std::vector<Rendering::ResourceID> swapchainImageViewIDs;
+	uint32_t currentSwapchainImageIndex = 0;
+
+	// Frame callback set by setRenderFrameCallback
+	sol::protected_function renderFrameCallback;
+	bool hasInjectedCBuf = false;
+
 	MultiIdMappedResources resources;
 	void registerResourceTypes() {
 		resources.addResourceType<Rendering::Image>();
@@ -286,6 +298,32 @@ public:
 	void setOperatingUser(RenderingServer::ResourceUser activeUser) {
 		this->setActiveTagForAll(static_cast<uint8_t>(activeUser));
 	}
+
+	// Must be called once after VulkanUtils is initialized, before any other use
+	void init();
+
+	// Register swapchain images/views into the resource store.
+	// Must be called after swapchain creation and again after every recreate.
+	void connectSwapchain(SwapChain* swapchain);
+
+	uint32_t    getSwapchainWidth();
+	uint32_t    getSwapchainHeight();
+	std::string getSwapchainFormat();
+
+	// Register a Lua function to be called each frame.
+	void setRenderFrameCallback(sol::protected_function fn);
+
+	// Called from C++ each frame. Injects the frame command buffer so that
+	// Lua cmd* calls record into it without a separate beginCommandBuffer.
+	void callRenderFrame(uint32_t frameIndex, uint32_t imageIndex, VkCommandBuffer externalCBuf);
+
+	// Lua-callable: returns ResourceIDs for the already-acquired swapchain image.
+	// The semaphore parameter is accepted for API consistency but is ignored in
+	// Phase 2 because C++ (Frame::performFrame) handles the actual acquire.
+	Rendering::FrameStartInfo acquireNextSwapchainImage(Rendering::ResourceID semaphoreID);
+
+	// No-op in Phase 2; present is handled by Frame::performFrame.
+	void presentSwapchainImage(uint32_t imageIndex, Rendering::ResourceID semaphoreID);
 
 	void registerRenderingScript(std::string scriptPath) {
 		//lua script

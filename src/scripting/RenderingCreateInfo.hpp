@@ -262,6 +262,14 @@ namespace Rendering {
 		}
 	};
 
+	struct EXPORTPROP("") EXPORTCLASS() FrameStartInfo {
+		ResourceID EXPORTPROP("") swapchainImage;
+		ResourceID EXPORTPROP("") swapchainImageView;
+		uint32_t EXPORTPROP("") imageIndex;
+		uint32_t EXPORTPROP("") swapchainWidth;
+		uint32_t EXPORTPROP("") swapchainHeight;
+	};
+
 	struct EXPORTPROP("") EXPORTCLASS() ComputePipelineCreateInfo {
 		ResourceID EXPORTPROP("") computeShaderModule;
 		ResourceID EXPORTPROP("") pipelineLayout;

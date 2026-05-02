@@ -20,6 +20,7 @@
 #include <glm/gtx/string_cast.hpp>
 
 #include "renderer/rendering.hpp"
+#include "scripting/RenderingServer.hpp"
 
 #include "core/vulkan_utils.hpp"
 #include "assets/MeshLoader.hpp"
@@ -125,6 +126,7 @@ private:
 
 	GraphicsRenderer renderer;
 	std::unique_ptr<SkyboxRenderer> skyboxR;
+	RenderingServer renderingServer;
 
 	RC<AsyncImageLoader> imageLoader;
 
@@ -187,7 +189,8 @@ private:
 		auto swapPresentMode = chooseSwapPresentMode(swapCapabilities.presentModes);
 
 		swapChain = SwapChain(core, swapChainFormat, swapPresentMode, chooseSwapExtent(swapCapabilities.capabilities));
-		//createDepthPrePassPipeline();
+		renderingServer.init();
+		renderingServer.connectSwapchain(&swapChain);
 
 		camera = CamHandler(core->window);
 		if (Store::itemInStore("cameraMovementSpeed")) {
@@ -534,61 +537,13 @@ private:
 		//	vkCmdEndRendering(activeFrame.commandBuffer);
 		//}
 
-		renderer.render(activeFrame.commandBuffer, current_frame);
-		{
-			//copy result to swapchain image
-			RC<Image> colorOutputImage = renderer.getResultImage();
-			colorOutputImage->cmdTransitionImageLayout(
-				activeFrame.commandBuffer,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-				VK_IMAGE_ASPECT_COLOR_BIT
-			);
-			Image::cmdTransitionImageLayout(
-				activeFrame.commandBuffer,
-				swapChain.swapChainImages[activeFrame.imageIndex.value()],
-				VK_IMAGE_ASPECT_COLOR_BIT,
-				VK_IMAGE_LAYOUT_UNDEFINED,
-				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-			);
-
-			VkImageBlit imageBlit{};
-			// Source
-			imageBlit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			imageBlit.srcSubresource.layerCount = 1;
-			imageBlit.srcSubresource.mipLevel = 0;
-			imageBlit.srcOffsets[1].x = colorOutputImage->extent.width;
-			imageBlit.srcOffsets[1].y = colorOutputImage->extent.height;
-			imageBlit.srcOffsets[1].z = 1;
-
-			// Destination
-			imageBlit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			imageBlit.dstSubresource.layerCount = 1;
-			imageBlit.dstSubresource.mipLevel = 0;
-			imageBlit.dstOffsets[1].x = swapChain.swapChainExtent.width;
-			imageBlit.dstOffsets[1].y = swapChain.swapChainExtent.height;
-			imageBlit.dstOffsets[1].z = 1;
-
-			vkCmdBlitImage(
-				activeFrame.commandBuffer,
-				colorOutputImage->image,
-				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-				swapChain.swapChainImages[activeFrame.imageIndex.value()],
-				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-				1,
-				&imageBlit,
-				VK_FILTER_NEAREST
-			);
-
-			Image::cmdTransitionImageLayout(
-				activeFrame.commandBuffer,
-				swapChain.swapChainImages[activeFrame.imageIndex.value()],
-				VK_IMAGE_ASPECT_COLOR_BIT,
-				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-			);
-
-		}
+		// Lua script drives rendering and blits its result to the swapchain image.
+		// If no callback is registered the frame stays dark (ImGui still renders).
+		renderingServer.callRenderFrame(
+			current_frame,
+			activeFrame.imageIndex.value(),
+			activeFrame.commandBuffer
+		);
 
 		//render ui
 		{
@@ -1091,6 +1046,7 @@ private:
 			//todo Recreate renderpass
 		}
 		swapChain = SwapChain(core, swapChainFormat, swapPresentMode, chooseSwapExtent(swapCapabilities.capabilities));
+		renderingServer.connectSwapchain(&swapChain);
 
 		VkRect2D newRegion{ {0, 0}, swapChain.swapChainExtent };
 		renderer.resize(newRegion);
