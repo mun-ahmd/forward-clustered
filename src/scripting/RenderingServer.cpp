@@ -1730,6 +1730,29 @@ void RenderingServer::setNearFar(float nearPlane, float farPlane) {
 float RenderingServer::getNearPlane() { return cachedNearPlane; }
 float RenderingServer::getFarPlane()  { return cachedFarPlane; }
 
+void RenderingServer::setSkyboxMatrix(const std::array<float, 16>& mat) {
+	cachedSkyboxMatrix = mat;
+}
+
+Rendering::LuaBuffer RenderingServer::getSkyboxInverseProjViewBuffer() {
+	LuaBuffer buf;
+	buf.resize(64);
+	for (int i = 0; i < 16; ++i)
+		buf.setFloat(i * 4, cachedSkyboxMatrix[i]);
+	return buf;
+}
+
+void RenderingServer::registerSkyboxDescriptorSet(uint32_t frameIndex, Rendering::ResourceID dsID) {
+	if (skyboxDSIDs.size() <= frameIndex)
+		skyboxDSIDs.resize(frameIndex + 1, 0);
+	skyboxDSIDs[frameIndex] = dsID;
+}
+
+Rendering::ResourceID RenderingServer::getSkyboxDescriptorSet(uint32_t frameIndex) {
+	assert(frameIndex < skyboxDSIDs.size() && "skybox DS not registered for this frame index");
+	return skyboxDSIDs[frameIndex];
+}
+
 void RenderingServer::cmdGlobalMemoryBarrier(
 	std::string srcStage, std::string dstStage,
 	std::string srcAccess, std::string dstAccess)
@@ -2108,5 +2131,7 @@ void bindRenderingServerToLua(sol::table& rendering, RenderingServer* server) {
 	rendering.set_function("setNearFar",                   &RenderingServer::setNearFar,                   server);
 	rendering.set_function("getNearPlane",                 &RenderingServer::getNearPlane,                 server);
 	rendering.set_function("getFarPlane",                  &RenderingServer::getFarPlane,                  server);
-	rendering.set_function("cmdGlobalMemoryBarrier",       &RenderingServer::cmdGlobalMemoryBarrier,       server);
+	rendering.set_function("cmdGlobalMemoryBarrier",           &RenderingServer::cmdGlobalMemoryBarrier,           server);
+	rendering.set_function("getSkyboxInverseProjViewBuffer",   &RenderingServer::getSkyboxInverseProjViewBuffer,   server);
+	rendering.set_function("getSkyboxDescriptorSet",           &RenderingServer::getSkyboxDescriptorSet,           server);
 }

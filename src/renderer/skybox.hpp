@@ -271,6 +271,10 @@ private:
 	}
 
 public:
+	VkDescriptorSet getDescriptorSet(uint32_t frameIndex) const {
+		return perFrame[frameIndex].descriptor;
+	}
+
 	void initialize(RC<AsyncImageLoader> iLoader, VkFormat colorAttachmentFormat, VkFormat depthAttachmentFormat) {
 		this->createCubemap(iLoader);
 		this->createSampler();

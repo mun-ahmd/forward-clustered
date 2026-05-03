@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstddef>
 #include <typeinfo>
 #include <unordered_map>
@@ -295,6 +296,11 @@ private:
 	std::vector<Rendering::ResourceID> clusterDSIDs;
 	float cachedNearPlane = 0.1f, cachedFarPlane = 200.0f;
 
+	// Skybox: pre-computed inverse(rotation-only-view) * inverse(proj) matrix
+	// and per-frame descriptor set ResourceIDs (combined-image-sampler for the HDR map).
+	std::array<float, 16> cachedSkyboxMatrix = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+	std::vector<Rendering::ResourceID> skyboxDSIDs;
+
 	MultiIdMappedResources resources;
 	void registerResourceTypes() {
 		resources.addResourceType<Rendering::Image>();
@@ -425,6 +431,16 @@ public:
 	void registerClusterDescriptorSet(uint32_t frameIndex, Rendering::ResourceID dsID);
 	Rendering::ResourceID getClusterDescriptorSet(uint32_t frameIndex);
 	void setNearFar(float nearPlane, float farPlane);
+
+	// Skybox support. Called from C++ each frame with the pre-computed
+	// inverse(rotation-only view) * inverse(proj) matrix (column-major, 16 floats).
+	void setSkyboxMatrix(const std::array<float, 16>& mat);
+	// Lua-callable: returns the matrix as a 64-byte LuaBuffer for cmdPushConstants.
+	Rendering::LuaBuffer getSkyboxInverseProjViewBuffer();
+	// Called from C++ once after SkyboxRenderer is initialized.
+	void registerSkyboxDescriptorSet(uint32_t frameIndex, Rendering::ResourceID dsID);
+	// Lua-callable: returns the per-frame skybox combined-image-sampler descriptor set.
+	Rendering::ResourceID getSkyboxDescriptorSet(uint32_t frameIndex);
 	float getNearPlane();
 	float getFarPlane();
 	void cmdGlobalMemoryBarrier(std::string srcStage, std::string dstStage,

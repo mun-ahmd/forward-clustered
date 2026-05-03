@@ -18,6 +18,7 @@
 #define GLM_FORCE_LEFT_HANDED
 
 #include <glm/gtx/string_cast.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include "renderer/rendering.hpp"
 #include "scripting/RenderingServer.hpp"
@@ -221,6 +222,7 @@ private:
 
 		skyboxR = std::make_unique<SkyboxRenderer>();
 		skyboxR->initialize(imageLoader, swapChain.swapChainImageFormat, swapChain.depthImage->format);
+		connectSkyboxToRenderingServer();
 
 		imgui.init(core, this->frames[0].commandBuffer, swapChain.swapChainImageFormat);
 
@@ -511,6 +513,16 @@ private:
 		//	vkCmdEndRendering(activeFrame.commandBuffer);
 		//}
 
+		// Update per-frame skybox matrix: inverse(rotation-only view) * inverse(proj)
+		{
+			glm::mat4 invView = glm::inverse(glm::mat4(glm::mat3(gDescValue.view)));
+			glm::mat4 invProj = glm::inverse(gDescValue.proj);
+			glm::mat4 skyboxMat = invView * invProj;
+			std::array<float, 16> arr;
+			memcpy(arr.data(), glm::value_ptr(skyboxMat), 64);
+			renderingServer.setSkyboxMatrix(arr);
+		}
+
 		// Lua script drives the full forward pass, post-process, and blits its result to the swapchain image.
 		renderingServer.callRenderFrame(
 			current_frame,
@@ -782,6 +794,16 @@ private:
 		imageLoader->request(imageLoadRequest);
 
 		return vImage;
+	}
+
+	void connectSkyboxToRenderingServer() {
+		renderingServer.setOperatingUser(RenderingServer::ResourceUser::SCENE);
+		for (uint32_t fi = 0; fi < MAX_FRAMES_IN_FLIGHT; ++fi) {
+			Rendering::ResourceID dsID = renderingServer.registerExternalDescriptorSet(
+				skyboxR->getDescriptorSet(fi), core->getLayout(skyboxR->getDescriptorSet(fi)));
+			renderingServer.registerSkyboxDescriptorSet(fi, dsID);
+		}
+		renderingServer.setOperatingUser(RenderingServer::ResourceUser::NONE);
 	}
 
 	void connectForwardOutputsToServer() {

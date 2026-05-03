@@ -128,6 +128,34 @@ local fwdPipe = rs.createPipeline(fwdPipeCI)
 rs.destroyShaderModule(fwdVert)
 rs.destroyShaderModule(fwdFrag)
 
+-- ---- Skybox pipeline (fullscreen triangle, depth LESS_OR_EQUAL, no write) --
+local skyVert = rs.createShaderModule("Shaders/cubemap.vert", "vertex")
+local skyFrag = rs.createShaderModule("Shaders/cubemap.frag", "fragment")
+
+local skyPlCI = PipelineLayoutCreateInfo.new()
+skyPlCI:addSetLayout(rs.getSkyboxDescriptorSet(0))
+skyPlCI:addPushConstant(0, 64, "vertex")
+local skyPL = rs.createPipelineLayout(skyPlCI)
+
+local skyPipeCI = PipelineCreateInfo.new()
+skyPipeCI.vertexShaderModule   = skyVert
+skyPipeCI.fragmentShaderModule = skyFrag
+skyPipeCI.pipelineLayout       = skyPL
+skyPipeCI.sampleCount          = 1
+skyPipeCI.sampleShadingEnable  = false
+skyPipeCI.depthTestEnable      = true
+skyPipeCI.depthWriteEnable     = false
+skyPipeCI.depthBoundsTestEnable = false
+skyPipeCI.stencilTestEnable    = false
+skyPipeCI.depthCompareOp       = "lessOrEqual"
+skyPipeCI.depthAttachmentFormat = depthFmt
+skyPipeCI.polygonMode          = "fill"
+skyPipeCI:addColorAttachment("r16g16b16a16Sfloat")
+skyPipeCI:addColorAttachment("a2r10g10b10UnormPack32")
+local skyPipe = rs.createPipeline(skyPipeCI)
+rs.destroyShaderModule(skyVert)
+rs.destroyShaderModule(skyFrag)
+
 -- ---- Post-process resources (reads from Lua-owned forward images) ----------
 local sampCI = SamplerCreateInfo.new()
 sampCI:setMinFilter("nearest")
@@ -306,6 +334,14 @@ rs.setRenderFrameCallback(function(frameIndex)
         rs.cmdBindIndexBuffer(d.indexBuffer, 0, d.indexType)
         rs.cmdDrawIndexed(d.indexCount, d.instanceCount, 0, 0, 0)
     end
+
+    -- ---- Skybox (rendered after scene geometry using filled depth buffer) --
+    local skyboxDS = rs.getSkyboxDescriptorSet(frameIndex)
+    rs.cmdUsePipeline(skyPipe)
+    rs.cmdBindDescriptorSets("graphics", skyPL, 0, {skyboxDS}, {})
+    rs.cmdPushConstants(skyPL, "vertex", 0, rs.getSkyboxInverseProjViewBuffer())
+    rs.cmdDraw(3, 1, 0, 0)
+
     rs.endRendering()
 
     -- ---- Post-process --------------------------------------------------
