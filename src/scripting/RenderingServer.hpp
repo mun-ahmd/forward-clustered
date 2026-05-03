@@ -430,9 +430,12 @@ public:
 		Rendering::ResourceID image,
 		Rendering::BufferToImageCopy copyInfo
 	);
-	//todo also find mechanism to write to buffers from lua
-	//not urgent
-	//eg.) void writeToBuffer(xyz);
+	// --- Phase 4: Buffer write API (buffer must have createMapped=true) ---
+	void writeToBuffer(Rendering::ResourceID buffer, uint32_t offset, sol::table bytes);
+	void writeFloatToBuffer(Rendering::ResourceID buffer, uint32_t offset, float v);
+	void writeVec4ToBuffer(Rendering::ResourceID buffer, uint32_t offset, float x, float y, float z, float w);
+	void writeMat4ToBuffer(Rendering::ResourceID buffer, uint32_t offset, sol::table mat16);
+	void flushBuffer(Rendering::ResourceID buffer, uint64_t offset, uint64_t size);
 
 	void destroyBuffer(Rendering::ResourceID buffer);
 

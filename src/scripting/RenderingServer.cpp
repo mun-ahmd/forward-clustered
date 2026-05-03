@@ -488,6 +488,10 @@ ResourceID RenderingServer::createBuffer(BufferCreateInfo info) {
 		throw std::runtime_error("failed to create buffer!");
 	}
 
+	if (info.createMapped) {
+		buffer.mappedPtr = allocattedInfo.pMappedData;
+	}
+
 	return this->resources.add(buffer);
 }
 
@@ -1489,6 +1493,46 @@ std::string RenderingServer::getDepthFormat() {
 	return cachedDepthFormat;
 }
 
+// --- Phase 4: Buffer write API ---
+
+void RenderingServer::writeToBuffer(ResourceID bufferID, uint32_t offset, sol::table bytes) {
+	Buffer buf = this->resources.get<Buffer>(bufferID);
+	assert(buf.mappedPtr != nullptr && "writeToBuffer: buffer is not persistently mapped");
+	uint8_t* dst = static_cast<uint8_t*>(buf.mappedPtr) + offset;
+	int n = static_cast<int>(bytes.size());
+	for (int i = 1; i <= n; i++) {
+		dst[i - 1] = static_cast<uint8_t>(bytes.get<int>(i));
+	}
+}
+
+void RenderingServer::writeFloatToBuffer(ResourceID bufferID, uint32_t offset, float v) {
+	Buffer buf = this->resources.get<Buffer>(bufferID);
+	assert(buf.mappedPtr != nullptr && "writeFloatToBuffer: buffer is not persistently mapped");
+	memcpy(static_cast<uint8_t*>(buf.mappedPtr) + offset, &v, sizeof(float));
+}
+
+void RenderingServer::writeVec4ToBuffer(ResourceID bufferID, uint32_t offset, float x, float y, float z, float w) {
+	Buffer buf = this->resources.get<Buffer>(bufferID);
+	assert(buf.mappedPtr != nullptr && "writeVec4ToBuffer: buffer is not persistently mapped");
+	float v[4] = {x, y, z, w};
+	memcpy(static_cast<uint8_t*>(buf.mappedPtr) + offset, v, sizeof(v));
+}
+
+void RenderingServer::writeMat4ToBuffer(ResourceID bufferID, uint32_t offset, sol::table mat16) {
+	Buffer buf = this->resources.get<Buffer>(bufferID);
+	assert(buf.mappedPtr != nullptr && "writeMat4ToBuffer: buffer is not persistently mapped");
+	float m[16];
+	for (int i = 0; i < 16; i++) {
+		m[i] = mat16.get<float>(i + 1);
+	}
+	memcpy(static_cast<uint8_t*>(buf.mappedPtr) + offset, m, sizeof(m));
+}
+
+void RenderingServer::flushBuffer(ResourceID bufferID, uint64_t offset, uint64_t size) {
+	Buffer buf = this->resources.get<Buffer>(bufferID);
+	vmaFlushAllocation(core->allocator, buf.allocation, static_cast<VkDeviceSize>(offset), static_cast<VkDeviceSize>(size));
+}
+
 void RenderingServer::waitForFence(ResourceID fenceID) {
 	VkFence fence = this->resources.get<Fence>(fenceID).fence;
 	vkWaitForFences(core->device, 1, &fence, VK_TRUE, UINT64_MAX);
@@ -1781,6 +1825,11 @@ void bindRenderingServerToLua(sol::table& rendering, RenderingServer* server) {
 	rendering.set_function("setRenderFrameCallback",     &RenderingServer::setRenderFrameCallback,     server);
 	rendering.set_function("acquireNextSwapchainImage",  &RenderingServer::acquireNextSwapchainImage,  server);
 	rendering.set_function("presentSwapchainImage",      &RenderingServer::presentSwapchainImage,      server);
+	rendering.set_function("writeToBuffer",              &RenderingServer::writeToBuffer,              server);
+	rendering.set_function("writeFloatToBuffer",         &RenderingServer::writeFloatToBuffer,         server);
+	rendering.set_function("writeVec4ToBuffer",          &RenderingServer::writeVec4ToBuffer,          server);
+	rendering.set_function("writeMat4ToBuffer",          &RenderingServer::writeMat4ToBuffer,          server);
+	rendering.set_function("flushBuffer",                &RenderingServer::flushBuffer,                server);
 	rendering.set_function("getSceneDrawables",          &RenderingServer::getSceneDrawables,          server);
 	rendering.set_function("getGlobalDescriptorSet",     &RenderingServer::getGlobalDescriptorSet,     server);
 	rendering.set_function("getLightsDescriptorSet",     &RenderingServer::getLightsDescriptorSet,     server);
