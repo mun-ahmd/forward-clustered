@@ -72,6 +72,20 @@ public:
 		}
 		return data;
 	}
+
+	template<typename Func>
+	void forEachWithTag(uint8_t tag, Func&& fn) {
+		for (auto& [id, val] : store) {
+			if (getTag(id) == tag) fn(val);
+		}
+	}
+
+	void removeAllWithTag(uint8_t tag) {
+		for (auto it = store.begin(); it != store.end(); ) {
+			if (getTag(it->first) == tag) it = store.erase(it);
+			else ++it;
+		}
+	}
 };
 
 class MultiIdMappedResources {
@@ -139,6 +153,15 @@ public:
 		this->getResourceStore<T>()->remove(id);
 	}
 
+	template<typename T, typename Func>
+	void forEachWithTag(uint8_t tag, Func&& fn) {
+		this->getResourceStore<T>()->forEachWithTag(tag, std::forward<Func>(fn));
+	}
+
+	template<typename T>
+	void removeAllWithTag(uint8_t tag) {
+		this->getResourceStore<T>()->removeAllWithTag(tag);
+	}
 
 };
 
@@ -246,8 +269,10 @@ private:
 	std::vector<Rendering::ResourceID> swapchainImageViewIDs;
 	uint32_t currentSwapchainImageIndex = 0;
 
-	// Frame callback set by setRenderFrameCallback
+	// Frame callback set by setRenderFrameCallback (child rendering script)
 	sol::protected_function renderFrameCallback;
+	// Hot-reload callback set by master.lua — survives resource destruction
+	sol::protected_function hotReloadCallback;
 	bool hasInjectedCBuf = false;
 
 	// Scene data registered by C++ after scene/renderer init
@@ -258,6 +283,17 @@ private:
 	std::vector<Rendering::ResourceID> lightsDSIDs;   // one per frame in flight
 	Rendering::ResourceID materialsDSID = 0;
 	std::string cachedDepthFormat;
+
+	// Forward renderer output images/views registered via connectForwardOutputs
+	std::vector<Rendering::ResourceID> forwardOutputImageIDs;
+	std::vector<Rendering::ResourceID> forwardOutputViewIDs;
+	Rendering::ResourceID forwardColorImageID = 0, forwardColorViewID = 0;
+	Rendering::ResourceID forwardDepthImageID = 0, forwardDepthViewID = 0;
+	Rendering::ResourceID forwardNormalImageID = 0, forwardNormalViewID = 0;
+
+	// Cluster compute descriptor sets (per frame) and cached near/far planes
+	std::vector<Rendering::ResourceID> clusterDSIDs;
+	float cachedNearPlane = 0.1f, cachedFarPlane = 200.0f;
 
 	MultiIdMappedResources resources;
 	void registerResourceTypes() {
@@ -322,6 +358,14 @@ public:
 	// Register a Lua function to be called each frame.
 	void setRenderFrameCallback(sol::protected_function fn);
 
+	// Hot-reload API: registered by master.lua, called by C++ on button press.
+	void setHotReloadCallback(sol::protected_function fn);
+	void callHotReloadCallback();
+
+	// Destroys all LUA-tagged Vulkan resources in safe dependency order.
+	// Called by master.lua's hot-reload handler before re-executing the child script.
+	void destroyAllLuaResources();
+
 	// Called from C++ each frame. Injects the frame command buffer so that
 	// Lua cmd* calls record into it without a separate beginCommandBuffer.
 	void callRenderFrame(uint32_t frameIndex, uint32_t imageIndex, VkCommandBuffer externalCBuf);
@@ -334,17 +378,50 @@ public:
 	// No-op in Phase 2; present is handled by Frame::performFrame.
 	void presentSwapchainImage(uint32_t imageIndex, Rendering::ResourceID semaphoreID);
 
-	// --- Phase 3: Scene data access ---
+	// --- Phase 3 / 5a: External resource registration ---
 
 	// Wraps an externally-owned buffer in the resource store (no VMA destroy on removal).
 	Rendering::ResourceID registerExternalBuffer(VkBuffer buffer, VmaAllocation allocation, uint64_t size);
 	// Wraps an externally-owned descriptor set in the resource store.
 	Rendering::ResourceID registerExternalDescriptorSet(VkDescriptorSet ds, VkDescriptorSetLayout layout);
+	// Wraps an externally-owned image (no VMA destroy on removal).
+	Rendering::ResourceID registerExternalImage(
+		VkImage image, VkFormat format, VkImageType imageType,
+		VkExtent3D extent, uint32_t mipLevels, uint32_t arrayLayers
+	);
+	// Wraps an externally-owned image view (no vkDestroyImageView on removal).
+	Rendering::ResourceID registerExternalImageView(VkImageView view);
+
+	// Registers the forward renderer's three output images and their views so that
+	// Lua can refer to them by ResourceID. Called from C++ after renderer.init()
+	// and again after swapchain resize.
+	void connectForwardOutputs(
+		VkImage colorImg,  VkFormat colorFmt,  VkImageView colorView,
+		VkImage depthImg,  VkFormat depthFmt,  VkImageView depthView,
+		VkImage normalImg, VkFormat normalFmt, VkImageView normalView,
+		VkExtent3D extent
+	);
+	void clearForwardOutputs();
+
+	// Lua accessors for forward output resource IDs
+	Rendering::ResourceID getForwardColorImage();
+	Rendering::ResourceID getForwardColorView();
+	Rendering::ResourceID getForwardDepthImage();
+	Rendering::ResourceID getForwardDepthView();
+	Rendering::ResourceID getForwardNormalImage();
+	Rendering::ResourceID getForwardNormalView();
 
 	// Associates already-registered resource IDs with their semantic roles.
 	void registerGlobalDescriptorSet(uint32_t frameIndex, Rendering::ResourceID dsID);
 	void registerLightsDescriptorSet(uint32_t frameIndex, Rendering::ResourceID dsID);
 	void registerMaterialsDescriptorSet(Rendering::ResourceID dsID);
+	void registerClusterDescriptorSet(uint32_t frameIndex, Rendering::ResourceID dsID);
+	Rendering::ResourceID getClusterDescriptorSet(uint32_t frameIndex);
+	void setNearFar(float nearPlane, float farPlane);
+	float getNearPlane();
+	float getFarPlane();
+	void cmdGlobalMemoryBarrier(std::string srcStage, std::string dstStage,
+	                             std::string srcAccess, std::string dstAccess);
 	void setDepthFormat(std::string format);
 
 	// Build the drawable cache (called from C++ after scene load).

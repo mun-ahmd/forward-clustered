@@ -472,6 +472,19 @@ namespace Rendering {
 	inline VkImageLayout imageLayoutFromString(std::string enumName) {
 	    return getEnumFromString(VkImageLayoutMap, enumName);
 	}
+	inline static std::unordered_map<std::string, VkImageViewType> VkImageViewTypeMap = {
+		{"1d", VK_IMAGE_VIEW_TYPE_1D},
+		{"2d", VK_IMAGE_VIEW_TYPE_2D},
+		{"3d", VK_IMAGE_VIEW_TYPE_3D},
+		{"cube", VK_IMAGE_VIEW_TYPE_CUBE},
+		{"1dArray", VK_IMAGE_VIEW_TYPE_1D_ARRAY},
+		{"2dArray", VK_IMAGE_VIEW_TYPE_2D_ARRAY},
+		{"cubeArray", VK_IMAGE_VIEW_TYPE_CUBE_ARRAY},
+		{"maxEnum", VK_IMAGE_VIEW_TYPE_MAX_ENUM}
+	};
+	inline VkImageViewType imageViewTypeFromString(std::string enumName) {
+	    return getEnumFromString(VkImageViewTypeMap, enumName);
+	}
 	inline static std::unordered_map<std::string, VkPipelineStageFlags> VkPipelineStageFlagBitsMap = {
 		{"topOfPipe", VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT},
 		{"drawIndirect", VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT},

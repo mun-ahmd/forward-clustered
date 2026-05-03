@@ -21,11 +21,13 @@ namespace Rendering {
 
 		VmaAllocation allocation;
 		bool isSwapchainImage = false;
+		bool isExternal = false; // skip VMA destroy for externally-owned images
 	};
 
 	struct ImageView {
 		VkImageView view;
 		VkImageViewCreateInfo info;
+		bool isExternal = false; // skip vkDestroyImageView for externally-owned views
 	};
 
 	struct Sampler {

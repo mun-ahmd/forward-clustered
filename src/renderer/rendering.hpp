@@ -280,6 +280,32 @@ public:
 		);
 	}
 
+	// Runs only the forward pass (transitions + scene draw). Post-process is left to Lua.
+	void renderForwardOnly(VkCommandBuffer commandBuffer, uint32_t frameIndex) {
+		assert(frameIndex < FRAMES_IN_FLIGHT);
+		forward->colorOutputImage->cmdTransitionImageLayout(
+			commandBuffer,
+			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_ASPECT_COLOR_BIT
+		);
+		forward->depthImage->cmdTransitionImageLayout(
+			commandBuffer,
+			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_ASPECT_DEPTH_BIT
+		);
+		forward->gNormal->cmdTransitionImageLayout(
+			commandBuffer,
+			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_ASPECT_COLOR_BIT
+		);
+		forwardRenderScene(
+			forward, scene, commandBuffer,
+			perFrame[frameIndex].globalFrameData.descriptor,
+			perFrame[frameIndex].pointLightsDS,
+			scene->materialsDescriptorSet
+		);
+	}
+
 	void render(VkCommandBuffer commandBuffer, uint32_t frameIndex) {
 		{
 			assert(frameIndex < FRAMES_IN_FLIGHT);
@@ -369,6 +395,14 @@ public:
 	RC<Image> getResultImage() {
 		return postProcess->colorOutputImage;
 	}
+
+	// Accessors for forward output images/views (for wiring into RenderingServer from main.cpp)
+	RC<Image>          getForwardColorImage()   { return forward->colorOutputImage; }
+	RC<Image>          getForwardDepthImage()   { return forward->depthImage; }
+	RC<Image>          getForwardNormalImage()  { return forward->gNormal; }
+	VkImageView        getForwardColorView()    { return forward->colorOutputView->view; }
+	VkImageView        getForwardDepthView()    { return forward->depthImageView->view; }
+	VkImageView        getForwardNormalView()   { return forward->gNormalView->view; }
 
 	VkDescriptorSet getGlobalDescriptorSet(uint32_t frameIndex) const {
 		assert(frameIndex < FRAMES_IN_FLIGHT);

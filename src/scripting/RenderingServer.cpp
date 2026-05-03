@@ -403,7 +403,7 @@ void RenderingServer::transitionImageLayout(
 
 void RenderingServer::destroyImage(Rendering::ResourceID image) {
 	Image img = this->resources.get<Image>(image);
-	if (!img.isSwapchainImage) {
+	if (!img.isSwapchainImage && !img.isExternal) {
 		vmaDestroyImage(core->allocator, img.image, img.allocation);
 	}
 	this->resources.remove<Image>(image);
@@ -418,7 +418,7 @@ Rendering::ResourceID RenderingServer::createImageView(
 	info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 	info.pNext = nullptr;
 
-	info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	info.viewType = imageViewTypeFromString(createInfo.viewType);
 	info.image = image.image;
 	//todo see if you wanna add mutable formats
 	info.format = image.format;
@@ -446,11 +446,10 @@ Rendering::ResourceID RenderingServer::createImageView(
 }
 
 void RenderingServer::destroyImageView(Rendering::ResourceID imageView) {
-	vkDestroyImageView(
-		VulkanUtils::utils().getCore()->device,
-		this->resources.get<Rendering::ImageView>(imageView).view,
-		nullptr
-	);
+	Rendering::ImageView view = this->resources.get<Rendering::ImageView>(imageView);
+	if (!view.isExternal) {
+		vkDestroyImageView(VulkanUtils::utils().getCore()->device, view.view, nullptr);
+	}
 	this->resources.remove<Rendering::ImageView>(imageView);
 }
 
@@ -696,10 +695,9 @@ ResourceID RenderingServer::createShaderModule(std::string shaderFile, std::stri
 		shaderFile,
 		shaderc_shaderKind
 	);
-	VkShaderModule shaderModule = VulkanUtils::utils().createShaderModule(
-		shaderSPIRV
-	);
-	return this->resources.add(shaderModule);
+	Rendering::ShaderModule sm{};
+	sm.shaderModule = VulkanUtils::utils().createShaderModule(shaderSPIRV);
+	return this->resources.add(sm);
 }
 
 void RenderingServer::destroyShaderModule(ResourceID moduleID) {
@@ -1382,6 +1380,98 @@ void RenderingServer::setRenderFrameCallback(sol::protected_function fn) {
 	renderFrameCallback = std::move(fn);
 }
 
+void RenderingServer::setHotReloadCallback(sol::protected_function fn) {
+	hotReloadCallback = std::move(fn);
+}
+
+void RenderingServer::callHotReloadCallback() {
+	if (hotReloadCallback.valid()) {
+		sol::protected_function_result result = hotReloadCallback();
+		if (!result.valid()) {
+			sol::error err = result;
+			std::cerr << "Error in hot-reload callback: " << err.what() << std::endl;
+		}
+	}
+}
+
+void RenderingServer::destroyAllLuaResources() {
+	auto tag = static_cast<uint8_t>(ResourceUser::LUA);
+
+	// Clear the child script's frame callback before destroying its captured resources.
+	renderFrameCallback = sol::protected_function{};
+
+	// Destruction order: dependents before dependencies.
+
+	// Pipelines (depend on pipeline layouts)
+	resources.forEachWithTag<Rendering::Pipeline>(tag, [&](Rendering::Pipeline& p) {
+		vkDestroyPipeline(core->device, p.pipeline, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::Pipeline>(tag);
+
+	// Pipeline layouts (depend on descriptor set layouts)
+	resources.forEachWithTag<Rendering::PipelineLayout>(tag, [&](Rendering::PipelineLayout& pl) {
+		vkDestroyPipelineLayout(core->device, pl.layout, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::PipelineLayout>(tag);
+
+	// Descriptor sets are freed when their pool is destroyed — remove from store only.
+	resources.removeAllWithTag<Rendering::DescriptorSet>(tag);
+
+	// Descriptor pools (frees all sets allocated from them)
+	resources.forEachWithTag<Rendering::DescriptorPool>(tag, [&](Rendering::DescriptorPool& dp) {
+		vkDestroyDescriptorPool(core->device, dp.pool, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::DescriptorPool>(tag);
+
+	// Shader modules
+	resources.forEachWithTag<Rendering::ShaderModule>(tag, [&](Rendering::ShaderModule& sm) {
+		vkDestroyShaderModule(core->device, sm.shaderModule, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::ShaderModule>(tag);
+
+	// Samplers
+	resources.forEachWithTag<Rendering::Sampler>(tag, [&](Rendering::Sampler& s) {
+		vkDestroySampler(core->device, s.sampler, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::Sampler>(tag);
+
+	// Image views (skip externally-owned views)
+	resources.forEachWithTag<Rendering::ImageView>(tag, [&](Rendering::ImageView& iv) {
+		if (!iv.isExternal) vkDestroyImageView(core->device, iv.view, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::ImageView>(tag);
+
+	// Images (skip swapchain images and externally-owned images)
+	resources.forEachWithTag<Rendering::Image>(tag, [&](Rendering::Image& img) {
+		if (!img.isSwapchainImage && !img.isExternal && img.allocation != VK_NULL_HANDLE) {
+			vmaDestroyImage(core->allocator, img.image, img.allocation);
+		}
+	});
+	resources.removeAllWithTag<Rendering::Image>(tag);
+
+	// Buffers (skip externally-owned buffers)
+	resources.forEachWithTag<Rendering::Buffer>(tag, [&](Rendering::Buffer& buf) {
+		if (!buf.isExternal) {
+			vmaDestroyBuffer(core->allocator, buf.buffer, buf.allocation);
+		}
+	});
+	resources.removeAllWithTag<Rendering::Buffer>(tag);
+
+	// Semaphores
+	resources.forEachWithTag<Rendering::Semaphore>(tag, [&](Rendering::Semaphore& s) {
+		vkDestroySemaphore(core->device, s.semaphore, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::Semaphore>(tag);
+
+	// Fences
+	resources.forEachWithTag<Rendering::Fence>(tag, [&](Rendering::Fence& f) {
+		vkDestroyFence(core->device, f.fence, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::Fence>(tag);
+
+	// Command buffers: Lua does not create CBs in the current design; skip.
+}
+
 void RenderingServer::callRenderFrame(uint32_t frameIndex, uint32_t imageIndex, VkCommandBuffer externalCBuf) {
 	currentSwapchainImageIndex = imageIndex;
 	hasInjectedCBuf = true;
@@ -1402,6 +1492,71 @@ void RenderingServer::callRenderFrame(uint32_t frameIndex, uint32_t imageIndex, 
 // connectSwapchain, getSwapchainWidth/Height/Format, acquireNextSwapchainImage,
 // and presentSwapchainImage are implemented in RenderingServerSwapchain.cpp to
 // avoid the Rendering::Image vs ::Image name clash that swapchain.hpp introduces.
+
+// --- Phase 3 / 5a: External resource registration ---
+
+Rendering::ResourceID RenderingServer::registerExternalImage(
+	VkImage image, VkFormat format, VkImageType imageType,
+	VkExtent3D extent, uint32_t mipLevels, uint32_t arrayLayers
+) {
+	Image img{};
+	img.image = image;
+	img.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+	img.format = format;
+	img.imageType = imageType;
+	img.extent = extent;
+	img.mipLevels = mipLevels;
+	img.arrayLayers = arrayLayers;
+	img.isExternal = true;
+	return this->resources.add(img);
+}
+
+Rendering::ResourceID RenderingServer::registerExternalImageView(VkImageView view) {
+	Rendering::ImageView imgView{};
+	imgView.view = view;
+	imgView.isExternal = true;
+	return this->resources.add(imgView);
+}
+
+void RenderingServer::connectForwardOutputs(
+	VkImage colorImg,  VkFormat colorFmt,  VkImageView colorView,
+	VkImage depthImg,  VkFormat depthFmt,  VkImageView depthView,
+	VkImage normalImg, VkFormat normalFmt, VkImageView normalView,
+	VkExtent3D extent
+) {
+	clearForwardOutputs();
+	auto prevUser = activeResourceUser;
+	setActiveTagForAll(static_cast<uint8_t>(ResourceUser::SCENE));
+
+	forwardColorImageID  = registerExternalImage(colorImg,  colorFmt,  VK_IMAGE_TYPE_2D, extent, 1, 1);
+	forwardColorViewID   = registerExternalImageView(colorView);
+	forwardDepthImageID  = registerExternalImage(depthImg,  depthFmt,  VK_IMAGE_TYPE_2D, extent, 1, 1);
+	forwardDepthViewID   = registerExternalImageView(depthView);
+	forwardNormalImageID = registerExternalImage(normalImg, normalFmt, VK_IMAGE_TYPE_2D, extent, 1, 1);
+	forwardNormalViewID  = registerExternalImageView(normalView);
+
+	forwardOutputImageIDs = { forwardColorImageID, forwardDepthImageID, forwardNormalImageID };
+	forwardOutputViewIDs  = { forwardColorViewID,  forwardDepthViewID,  forwardNormalViewID  };
+
+	setActiveTagForAll(static_cast<uint8_t>(prevUser));
+}
+
+void RenderingServer::clearForwardOutputs() {
+	for (ResourceID id : forwardOutputViewIDs)  this->resources.remove<ImageView>(id);
+	for (ResourceID id : forwardOutputImageIDs) this->resources.remove<Image>(id);
+	forwardOutputImageIDs.clear();
+	forwardOutputViewIDs.clear();
+	forwardColorImageID = forwardColorViewID = 0;
+	forwardDepthImageID = forwardDepthViewID = 0;
+	forwardNormalImageID = forwardNormalViewID = 0;
+}
+
+Rendering::ResourceID RenderingServer::getForwardColorImage()  { return forwardColorImageID; }
+Rendering::ResourceID RenderingServer::getForwardColorView()   { return forwardColorViewID; }
+Rendering::ResourceID RenderingServer::getForwardDepthImage()  { return forwardDepthImageID; }
+Rendering::ResourceID RenderingServer::getForwardDepthView()   { return forwardDepthViewID; }
+Rendering::ResourceID RenderingServer::getForwardNormalImage() { return forwardNormalImageID; }
+Rendering::ResourceID RenderingServer::getForwardNormalView()  { return forwardNormalViewID; }
 
 // --- Phase 3: Scene data access ---
 
@@ -1460,6 +1615,7 @@ void RenderingServer::clearSceneData() {
 	globalDSIDs.clear();
 	lightsDSIDs.clear();
 	materialsDSID = 0;
+	clusterDSIDs.clear();
 }
 
 sol::table RenderingServer::getSceneDrawables() {
@@ -1491,6 +1647,44 @@ uint32_t RenderingServer::getFramesInFlight() {
 
 std::string RenderingServer::getDepthFormat() {
 	return cachedDepthFormat;
+}
+
+void RenderingServer::registerClusterDescriptorSet(uint32_t frameIndex, Rendering::ResourceID dsID) {
+	if (clusterDSIDs.size() <= frameIndex)
+		clusterDSIDs.resize(frameIndex + 1, 0);
+	clusterDSIDs[frameIndex] = dsID;
+}
+
+Rendering::ResourceID RenderingServer::getClusterDescriptorSet(uint32_t frameIndex) {
+	assert(frameIndex < clusterDSIDs.size() && "cluster DS not registered for this frame index");
+	return clusterDSIDs[frameIndex];
+}
+
+void RenderingServer::setNearFar(float nearPlane, float farPlane) {
+	cachedNearPlane = nearPlane;
+	cachedFarPlane = farPlane;
+}
+
+float RenderingServer::getNearPlane() { return cachedNearPlane; }
+float RenderingServer::getFarPlane()  { return cachedFarPlane; }
+
+void RenderingServer::cmdGlobalMemoryBarrier(
+	std::string srcStage, std::string dstStage,
+	std::string srcAccess, std::string dstAccess)
+{
+	VkMemoryBarrier barrier{};
+	barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+	barrier.srcAccessMask = accessFlagsFromString(srcAccess);
+	barrier.dstAccessMask = accessFlagsFromString(dstAccess);
+	vkCmdPipelineBarrier(
+		activeCBuf,
+		pipelineStageFlagsFromString(srcStage),
+		pipelineStageFlagsFromString(dstStage),
+		0,
+		1, &barrier,
+		0, nullptr,
+		0, nullptr
+	);
 }
 
 // --- Phase 4: Buffer write API ---
@@ -1549,7 +1743,8 @@ void bindRenderingServerToLua(sol::table& rendering, RenderingServer* server);
 void RenderingServer::registerRenderingBindings()
 {
 	lua.state.open_libraries(sol::lib::base);
-	lua.rendering = lua.state.create_named_table("rs");
+	lua.rendering = lua.state.create_named_table("rendering");
+	lua.state["rs"] = lua.rendering;
 	bindRenderingCreateInfoToLua(lua.state);
 	bindRenderingServerToLua(lua.rendering, this);
 }
@@ -1584,7 +1779,8 @@ void bindRenderingCreateInfoToLua(sol::state& luaState) {
 		sol::constructors<ImageViewCreateInfo()>(),
 		"aspectMask", &ImageViewCreateInfo::aspectMask,
 		"levelCount", &ImageViewCreateInfo::levelCount,
-		"arrayLayerCount", &ImageViewCreateInfo::arrayLayerCount
+		"arrayLayerCount", &ImageViewCreateInfo::arrayLayerCount,
+		"viewType", &ImageViewCreateInfo::viewType
 	);
 	luaState.new_usertype<BufferCreateInfo>(
 		"BufferCreateInfo",
@@ -1822,7 +2018,10 @@ void bindRenderingServerToLua(sol::table& rendering, RenderingServer* server) {
 	rendering.set_function("getSwapchainWidth",          &RenderingServer::getSwapchainWidth,          server);
 	rendering.set_function("getSwapchainHeight",         &RenderingServer::getSwapchainHeight,         server);
 	rendering.set_function("getSwapchainFormat",         &RenderingServer::getSwapchainFormat,         server);
+	rendering.set_function("log", [](std::string msg) { std::cout << "[lua] " << msg << std::endl; });
 	rendering.set_function("setRenderFrameCallback",     &RenderingServer::setRenderFrameCallback,     server);
+	rendering.set_function("setHotReloadCallback",       &RenderingServer::setHotReloadCallback,       server);
+	rendering.set_function("destroyAllLuaResources",     &RenderingServer::destroyAllLuaResources,     server);
 	rendering.set_function("acquireNextSwapchainImage",  &RenderingServer::acquireNextSwapchainImage,  server);
 	rendering.set_function("presentSwapchainImage",      &RenderingServer::presentSwapchainImage,      server);
 	rendering.set_function("writeToBuffer",              &RenderingServer::writeToBuffer,              server);
@@ -1830,10 +2029,22 @@ void bindRenderingServerToLua(sol::table& rendering, RenderingServer* server) {
 	rendering.set_function("writeVec4ToBuffer",          &RenderingServer::writeVec4ToBuffer,          server);
 	rendering.set_function("writeMat4ToBuffer",          &RenderingServer::writeMat4ToBuffer,          server);
 	rendering.set_function("flushBuffer",                &RenderingServer::flushBuffer,                server);
+	rendering.set_function("getForwardColorImage",        &RenderingServer::getForwardColorImage,       server);
+	rendering.set_function("getForwardColorView",         &RenderingServer::getForwardColorView,        server);
+	rendering.set_function("getForwardDepthImage",        &RenderingServer::getForwardDepthImage,       server);
+	rendering.set_function("getForwardDepthView",         &RenderingServer::getForwardDepthView,        server);
+	rendering.set_function("getForwardNormalImage",       &RenderingServer::getForwardNormalImage,      server);
+	rendering.set_function("getForwardNormalView",        &RenderingServer::getForwardNormalView,       server);
 	rendering.set_function("getSceneDrawables",          &RenderingServer::getSceneDrawables,          server);
 	rendering.set_function("getGlobalDescriptorSet",     &RenderingServer::getGlobalDescriptorSet,     server);
 	rendering.set_function("getLightsDescriptorSet",     &RenderingServer::getLightsDescriptorSet,     server);
 	rendering.set_function("getMaterialsDescriptorSet",  &RenderingServer::getMaterialsDescriptorSet,  server);
 	rendering.set_function("getFramesInFlight",          &RenderingServer::getFramesInFlight,          server);
 	rendering.set_function("getDepthFormat",             &RenderingServer::getDepthFormat,             server);
+	rendering.set_function("registerClusterDescriptorSet", &RenderingServer::registerClusterDescriptorSet, server);
+	rendering.set_function("getClusterDescriptorSet",      &RenderingServer::getClusterDescriptorSet,      server);
+	rendering.set_function("setNearFar",                   &RenderingServer::setNearFar,                   server);
+	rendering.set_function("getNearPlane",                 &RenderingServer::getNearPlane,                 server);
+	rendering.set_function("getFarPlane",                  &RenderingServer::getFarPlane,                  server);
+	rendering.set_function("cmdGlobalMemoryBarrier",       &RenderingServer::cmdGlobalMemoryBarrier,       server);
 }

@@ -214,12 +214,16 @@ private:
 			frames[fi].data.globalDescBufferMappedPointer = renderer.getGlobalDescriptorMappedData(fi);
 		}
 		connectSceneToRenderingServer();
+		renderingServer.setNearFar(nearPlane, farPlane);
 		createClusterComputePipeline();
 
 		skyboxR = std::make_unique<SkyboxRenderer>();
 		skyboxR->initialize(imageLoader, swapChain.swapChainImageFormat, swapChain.depthImage->format);
 
-		imgui.init(core, this->frames[0].commandBuffer, swapChain.swapChainImageFormat);		
+		imgui.init(core, this->frames[0].commandBuffer, swapChain.swapChainImageFormat);
+
+		renderingServer.registerRenderingScript("scripts/master.lua");
+		renderingServer.executeRenderingScript();
 	}
 	 
 
@@ -381,45 +385,6 @@ private:
 		}
 		ImGui::End();
 
-		//compute clusters
-		{
-			VkCommandBufferBeginInfo beginInfo{};
-			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-			beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-			if (vkBeginCommandBuffer(activeFrame.data.computeCommandBuffer, &beginInfo) != VK_SUCCESS) {
-				throw std::runtime_error("failed to begin recording command buffer!");
-			}
-
-			vkCmdBindPipeline(activeFrame.data.computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clusterComp.pipe);
-			glm::vec4 zBoundsVec = glm::vec4(nearPlane, farPlane, 0.0, 0.0);
-			vkCmdPushConstants(activeFrame.data.computeCommandBuffer, clusterComp.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(glm::vec4), &zBoundsVec);
-			VkDescriptorSet descriptors[3] = { activeFrame.data.globalDS, activeFrame.data.pointLightsDS, activeFrame.data.clusterCompDS };
-			vkCmdBindDescriptorSets(
-				activeFrame.data.computeCommandBuffer,
-				VK_PIPELINE_BIND_POINT_COMPUTE,
-				clusterComp.layout, 0, 3, descriptors,
-				0, 0
-			);
-
-			vkCmdDispatch(activeFrame.data.computeCommandBuffer, 32, 32, 4);
-
-
-			if (vkEndCommandBuffer(activeFrame.data.computeCommandBuffer) != VK_SUCCESS) {
-				throw std::runtime_error("failed to record command buffer!");
-			}
-
-			VkSubmitInfo submitInfo{};
-			submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-			submitInfo.commandBufferCount = 1;
-			submitInfo.pCommandBuffers = &activeFrame.data.computeCommandBuffer;
-			submitInfo.waitSemaphoreCount = 0;
-			submitInfo.signalSemaphoreCount = 1;
-			submitInfo.pSignalSemaphores = &activeFrame.data.clusterCompSemaphore;
-			vkQueueSubmit(core->graphicsQueue, 1, &submitInfo, activeFrame.data.clusterCompFence);
-		}
-		//end compute clusters
-
 		VkCommandBufferBeginInfo beginInfo{};
 		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 		beginInfo.flags = 0; // Optional
@@ -538,8 +503,7 @@ private:
 		//	vkCmdEndRendering(activeFrame.commandBuffer);
 		//}
 
-		// Lua script drives rendering and blits its result to the swapchain image.
-		// If no callback is registered the frame stays dark (ImGui still renders).
+		// Lua script drives the full forward pass, post-process, and blits its result to the swapchain image.
 		renderingServer.callRenderFrame(
 			current_frame,
 			activeFrame.imageIndex.value(),
@@ -587,9 +551,6 @@ private:
 			throw std::runtime_error("failed to record command buffer!");
 		}
 
-		additionalWaitFences.push_back(activeFrame.data.clusterCompFence);
-		additionalWaitSemaphores.push_back(activeFrame.data.clusterCompSemaphore);
-		waitPipelineStageFlags.push_back(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 	}
 
 	void mainLoop() {
@@ -666,13 +627,12 @@ private:
 					vkDeviceWaitIdle(core->device);
 
 					auto start = std::chrono::high_resolution_clock::now();
-					
-					{
-					}
+
+					renderingServer.callHotReloadCallback();
 
 					auto end = std::chrono::high_resolution_clock::now();
 					auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-					std::cout << "Rebuilding took: " << duration.count() << " ms" << std::endl;
+					std::cout << "Hot reload took: " << duration.count() << " ms" << std::endl;
 
 					rebuildShadingPipe = false;
 				}
@@ -794,6 +754,18 @@ private:
 		return vImage;
 	}
 
+	void connectForwardOutputsToServer() {
+		renderingServer.connectForwardOutputs(
+			renderer.getForwardColorImage()->image,  renderer.getForwardColorImage()->format,
+			renderer.getForwardColorView(),
+			renderer.getForwardDepthImage()->image,  renderer.getForwardDepthImage()->format,
+			renderer.getForwardDepthView(),
+			renderer.getForwardNormalImage()->image, renderer.getForwardNormalImage()->format,
+			renderer.getForwardNormalView(),
+			renderer.getForwardColorImage()->extent
+		);
+	}
+
 	void connectSceneToRenderingServer() {
 		renderingServer.clearSceneData();
 		renderingServer.setOperatingUser(RenderingServer::ResourceUser::SCENE);
@@ -809,6 +781,14 @@ private:
 			Rendering::ResourceID lightsDSID = renderingServer.registerExternalDescriptorSet(
 				lightsDS, core->getLayout(lightsDS));
 			renderingServer.registerLightsDescriptorSet(fi, lightsDSID);
+		}
+
+		// Cluster compute descriptor sets (per frame)
+		for (uint32_t fi = 0; fi < MAX_FRAMES_IN_FLIGHT; ++fi) {
+			VkDescriptorSet clusterDS = frames[fi].data.clusterCompDS;
+			Rendering::ResourceID clusterDSID = renderingServer.registerExternalDescriptorSet(
+				clusterDS, core->getLayout(clusterDS));
+			renderingServer.registerClusterDescriptorSet(fi, clusterDSID);
 		}
 
 		// Materials descriptor set

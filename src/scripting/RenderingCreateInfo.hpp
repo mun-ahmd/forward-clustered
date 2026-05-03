@@ -40,6 +40,7 @@ namespace Rendering {
 		std::string EXPORTPROP("") aspectMask;
 		int EXPORTPROP("") levelCount;
 		int EXPORTPROP("") arrayLayerCount;
+		std::string EXPORTPROP("") viewType = "2d";
 	};
 
 
