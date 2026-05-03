@@ -366,6 +366,13 @@ public:
 	// Called by master.lua's hot-reload handler before re-executing the child script.
 	void destroyAllLuaResources();
 
+	// Destroys all SCENE-tagged Vulkan resources in safe dependency order.
+	// Called by SceneServer::destroyAllSceneResources() before reloading scene scripts.
+	void destroyAllSceneResources();
+
+	// Returns a view into the shared Lua state so SceneServer can register its table.
+	sol::state_view getLuaState();
+
 	// Called from C++ each frame. Injects the frame command buffer so that
 	// Lua cmd* calls record into it without a separate beginCommandBuffer.
 	void callRenderFrame(uint32_t frameIndex, uint32_t imageIndex, VkCommandBuffer externalCBuf);

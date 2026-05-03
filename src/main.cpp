@@ -21,6 +21,7 @@
 
 #include "renderer/rendering.hpp"
 #include "scripting/RenderingServer.hpp"
+#include "scripting/SceneServer.hpp"
 
 #include "core/vulkan_utils.hpp"
 #include "assets/MeshLoader.hpp"
@@ -127,6 +128,7 @@ private:
 	GraphicsRenderer renderer;
 	std::unique_ptr<SkyboxRenderer> skyboxR;
 	RenderingServer renderingServer;
+	SceneServer     sceneServer;
 
 	RC<AsyncImageLoader> imageLoader;
 
@@ -223,12 +225,14 @@ private:
 		imgui.init(core, this->frames[0].commandBuffer, swapChain.swapChainImageFormat);
 
 		renderingServer.registerRenderingScript("scripts/master.lua");
+		sceneServer.init(renderingServer);
 		renderingServer.executeRenderingScript();
 	}
 	 
 
-	bool hasModelChanged = false;
+	bool hasModelChanged    = false;
 	bool rebuildShadingPipe = false;
+	bool reloadScene        = false;
 
 	globalDescriptor gDescValue{};
 
@@ -382,6 +386,10 @@ private:
 			if (ImGui::Button("Rebuild Shading Pipeline")) {
 				this->rebuildShadingPipe = true;
 			}
+			ImGui::SameLine();
+			if (ImGui::Button("Reload Scene")) {
+				this->reloadScene = true;
+			}
 		}
 		ImGui::End();
 
@@ -509,6 +517,7 @@ private:
 			activeFrame.imageIndex.value(),
 			activeFrame.commandBuffer
 		);
+		sceneServer.callFrameCallback(current_frame);
 
 		//render ui
 		{
@@ -635,6 +644,27 @@ private:
 					std::cout << "Hot reload took: " << duration.count() << " ms" << std::endl;
 
 					rebuildShadingPipe = false;
+				}
+
+				if (reloadScene) {
+					vkDeviceWaitIdle(core->device);
+
+					auto start = std::chrono::high_resolution_clock::now();
+
+					sceneServer.callSceneReloadCallback();
+
+					// destroyAllSceneResources() wipes all SCENE-tagged entries from
+					// the resource store (including C++-owned external buffers and
+					// descriptor sets). Re-register them so the rendering script can
+					// still find them by ResourceID next frame.
+					connectForwardOutputsToServer();
+					connectSceneToRenderingServer();
+
+					auto end = std::chrono::high_resolution_clock::now();
+					auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+					std::cout << "Scene reload took: " << duration.count() << " ms" << std::endl;
+
+					reloadScene = false;
 				}
 
 				//transfer async images loaded
@@ -1103,6 +1133,11 @@ private:
 
 		VkRect2D newRegion{ {0, 0}, swapChain.swapChainExtent };
 		renderer.resize(newRegion);
+
+		// Re-register resized forward outputs, then hot-reload the Lua rendering
+		// script so it recreates its own images at the new swapchain dimensions.
+		connectForwardOutputsToServer();
+		renderingServer.callHotReloadCallback();
 	}
 };
 

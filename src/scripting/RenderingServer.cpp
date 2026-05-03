@@ -1472,6 +1472,68 @@ void RenderingServer::destroyAllLuaResources() {
 	// Command buffers: Lua does not create CBs in the current design; skip.
 }
 
+void RenderingServer::destroyAllSceneResources() {
+	auto tag = static_cast<uint8_t>(ResourceUser::SCENE);
+
+	resources.forEachWithTag<Rendering::Pipeline>(tag, [&](Rendering::Pipeline& p) {
+		vkDestroyPipeline(core->device, p.pipeline, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::Pipeline>(tag);
+
+	resources.forEachWithTag<Rendering::PipelineLayout>(tag, [&](Rendering::PipelineLayout& pl) {
+		vkDestroyPipelineLayout(core->device, pl.layout, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::PipelineLayout>(tag);
+
+	resources.removeAllWithTag<Rendering::DescriptorSet>(tag);
+
+	resources.forEachWithTag<Rendering::DescriptorPool>(tag, [&](Rendering::DescriptorPool& dp) {
+		vkDestroyDescriptorPool(core->device, dp.pool, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::DescriptorPool>(tag);
+
+	resources.forEachWithTag<Rendering::ShaderModule>(tag, [&](Rendering::ShaderModule& sm) {
+		vkDestroyShaderModule(core->device, sm.shaderModule, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::ShaderModule>(tag);
+
+	resources.forEachWithTag<Rendering::Sampler>(tag, [&](Rendering::Sampler& s) {
+		vkDestroySampler(core->device, s.sampler, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::Sampler>(tag);
+
+	resources.forEachWithTag<Rendering::ImageView>(tag, [&](Rendering::ImageView& iv) {
+		if (!iv.isExternal) vkDestroyImageView(core->device, iv.view, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::ImageView>(tag);
+
+	resources.forEachWithTag<Rendering::Image>(tag, [&](Rendering::Image& img) {
+		if (!img.isSwapchainImage && !img.isExternal && img.allocation != VK_NULL_HANDLE)
+			vmaDestroyImage(core->allocator, img.image, img.allocation);
+	});
+	resources.removeAllWithTag<Rendering::Image>(tag);
+
+	resources.forEachWithTag<Rendering::Buffer>(tag, [&](Rendering::Buffer& buf) {
+		if (!buf.isExternal)
+			vmaDestroyBuffer(core->allocator, buf.buffer, buf.allocation);
+	});
+	resources.removeAllWithTag<Rendering::Buffer>(tag);
+
+	resources.forEachWithTag<Rendering::Semaphore>(tag, [&](Rendering::Semaphore& s) {
+		vkDestroySemaphore(core->device, s.semaphore, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::Semaphore>(tag);
+
+	resources.forEachWithTag<Rendering::Fence>(tag, [&](Rendering::Fence& f) {
+		vkDestroyFence(core->device, f.fence, nullptr);
+	});
+	resources.removeAllWithTag<Rendering::Fence>(tag);
+}
+
+sol::state_view RenderingServer::getLuaState() {
+	return sol::state_view(lua.state.lua_state());
+}
+
 void RenderingServer::callRenderFrame(uint32_t frameIndex, uint32_t imageIndex, VkCommandBuffer externalCBuf) {
 	currentSwapchainImageIndex = imageIndex;
 	hasInjectedCBuf = true;

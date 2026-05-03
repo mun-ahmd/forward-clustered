@@ -31,6 +31,7 @@ add_executable(Renderer
 	vendor/fast_obj.c
 	src/scripting/RenderingServer.cpp
 	src/scripting/RenderingServerSwapchain.cpp
+	src/scripting/SceneServer.cpp
 	src/assets/ImageLoader.cpp
 	Imgui/imgui.cpp
 	Imgui/imgui_demo.cpp
