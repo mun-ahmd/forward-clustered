@@ -250,6 +250,15 @@ private:
 	sol::protected_function renderFrameCallback;
 	bool hasInjectedCBuf = false;
 
+	// Scene data registered by C++ after scene/renderer init
+	std::vector<Rendering::LuaDrawable> sceneDrawables;
+	std::vector<Rendering::ResourceID> sceneExternalBufferIDs;
+	std::vector<Rendering::ResourceID> sceneExternalDescriptorSetIDs;
+	std::vector<Rendering::ResourceID> globalDSIDs;   // one per frame in flight
+	std::vector<Rendering::ResourceID> lightsDSIDs;   // one per frame in flight
+	Rendering::ResourceID materialsDSID = 0;
+	std::string cachedDepthFormat;
+
 	MultiIdMappedResources resources;
 	void registerResourceTypes() {
 		resources.addResourceType<Rendering::Image>();
@@ -324,6 +333,31 @@ public:
 
 	// No-op in Phase 2; present is handled by Frame::performFrame.
 	void presentSwapchainImage(uint32_t imageIndex, Rendering::ResourceID semaphoreID);
+
+	// --- Phase 3: Scene data access ---
+
+	// Wraps an externally-owned buffer in the resource store (no VMA destroy on removal).
+	Rendering::ResourceID registerExternalBuffer(VkBuffer buffer, VmaAllocation allocation, uint64_t size);
+	// Wraps an externally-owned descriptor set in the resource store.
+	Rendering::ResourceID registerExternalDescriptorSet(VkDescriptorSet ds, VkDescriptorSetLayout layout);
+
+	// Associates already-registered resource IDs with their semantic roles.
+	void registerGlobalDescriptorSet(uint32_t frameIndex, Rendering::ResourceID dsID);
+	void registerLightsDescriptorSet(uint32_t frameIndex, Rendering::ResourceID dsID);
+	void registerMaterialsDescriptorSet(Rendering::ResourceID dsID);
+	void setDepthFormat(std::string format);
+
+	// Build the drawable cache (called from C++ after scene load).
+	void addSceneDrawable(Rendering::LuaDrawable drawable);
+	void clearSceneData(); // removes all scene-registered resource IDs from the store
+
+	// Lua accessors
+	sol::table  getSceneDrawables();
+	Rendering::ResourceID getGlobalDescriptorSet(uint32_t frameIndex);
+	Rendering::ResourceID getLightsDescriptorSet(uint32_t frameIndex);
+	Rendering::ResourceID getMaterialsDescriptorSet();
+	uint32_t    getFramesInFlight();
+	std::string getDepthFormat();
 
 	void registerRenderingScript(std::string scriptPath) {
 		//lua script

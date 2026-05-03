@@ -6,6 +6,8 @@ namespace Rendering {
 		VkBuffer buffer;
 		VmaAllocation allocation;
 		uint64_t allocatedSize;
+		bool isExternal = false; // skip VMA destroy for externally-owned buffers
+		void* mappedPtr = nullptr; // Phase 4: persistent mapping
 	};
 
 	struct Image {

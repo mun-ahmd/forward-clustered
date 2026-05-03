@@ -318,6 +318,21 @@ namespace Rendering {
 		int32_t EXPORTPROP("") dstX1 = 0, dstY1 = 0, dstZ1 = 1;
 	};
 
+	struct EXPORTPROP("") EXPORTCLASS() LuaDrawable {
+		ResourceID EXPORTPROP("") vertexBuffer = 0;
+		ResourceID EXPORTPROP("") indexBuffer = 0;
+		uint32_t EXPORTPROP("") indexCount = 0;
+		std::string EXPORTPROP("") indexType; // "uint16" | "uint32"
+		uint32_t EXPORTPROP("") instanceCount = 1;
+		std::array<float, 16> transform = {};
+		uint32_t EXPORTPROP("") materialDynamicOffset = 0;
+
+		float EXPORTPROP("") getTransformAt(int oneBasedIndex) const {
+			assert(oneBasedIndex >= 1 && oneBasedIndex <= 16);
+			return transform[oneBasedIndex - 1];
+		}
+	};
+
 	struct LightProperties {
 
 	};

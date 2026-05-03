@@ -213,6 +213,7 @@ private:
 			frames[fi].data.pointLightsDS = renderer.getPointLightsDescriptorSet(fi);
 			frames[fi].data.globalDescBufferMappedPointer = renderer.getGlobalDescriptorMappedData(fi);
 		}
+		connectSceneToRenderingServer();
 		createClusterComputePipeline();
 
 		skyboxR = std::make_unique<SkyboxRenderer>();
@@ -654,6 +655,7 @@ private:
 					auto start = std::chrono::high_resolution_clock::now();
 					// Reload the models
 					this->scene->loadScene(gltfModelSelector.loadedModelPath.c_str());
+					connectSceneToRenderingServer();
 					auto end = std::chrono::high_resolution_clock::now();
 					auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 					std::cout << "Loading new model took: " << duration.count() << " ms" << std::endl;
@@ -790,6 +792,77 @@ private:
 		imageLoader->request(imageLoadRequest);
 
 		return vImage;
+	}
+
+	void connectSceneToRenderingServer() {
+		renderingServer.clearSceneData();
+		renderingServer.setOperatingUser(RenderingServer::ResourceUser::SCENE);
+
+		// Per-frame descriptor sets
+		for (uint32_t fi = 0; fi < MAX_FRAMES_IN_FLIGHT; ++fi) {
+			VkDescriptorSet globalDS = renderer.getGlobalDescriptorSet(fi);
+			Rendering::ResourceID globalDSID = renderingServer.registerExternalDescriptorSet(
+				globalDS, core->getLayout(globalDS));
+			renderingServer.registerGlobalDescriptorSet(fi, globalDSID);
+
+			VkDescriptorSet lightsDS = renderer.getPointLightsDescriptorSet(fi);
+			Rendering::ResourceID lightsDSID = renderingServer.registerExternalDescriptorSet(
+				lightsDS, core->getLayout(lightsDS));
+			renderingServer.registerLightsDescriptorSet(fi, lightsDSID);
+		}
+
+		// Materials descriptor set
+		{
+			VkDescriptorSet materialsDS = scene->materialsDescriptorSet;
+			Rendering::ResourceID materialsDSID = renderingServer.registerExternalDescriptorSet(
+				materialsDS, core->getLayout(materialsDS));
+			renderingServer.registerMaterialsDescriptorSet(materialsDSID);
+		}
+
+		// Depth format
+		renderingServer.setDepthFormat(Rendering::formatToString(swapChain.depthImage->format));
+
+		// Drawable cache — singular meshes (1 instance each)
+		for (auto& meshInfo : scene->singularMeshes) {
+			Mesh& mesh = scene->meshes[meshInfo.mesh];
+			Rendering::LuaDrawable d{};
+			d.vertexBuffer = renderingServer.registerExternalBuffer(
+				mesh.vertexBuffer->buffer, mesh.vertexBuffer->allocation, 0);
+			d.indexBuffer = renderingServer.registerExternalBuffer(
+				mesh.indexBuffer->buffer, mesh.indexBuffer->allocation, 0);
+			d.indexCount = mesh.numIndices;
+			d.indexType = (mesh.indexType == VK_INDEX_TYPE_UINT16) ? "uint16" : "uint32";
+			d.instanceCount = 1;
+			d.materialDynamicOffset = static_cast<uint32_t>(
+				scene->materials.getResourceOffset(meshInfo.material));
+			for (int col = 0; col < 4; col++)
+				for (int row = 0; row < 4; row++)
+					d.transform[col * 4 + row] = meshInfo.transform[col][row];
+			renderingServer.addSceneDrawable(d);
+		}
+
+		// Instanced mesh groups — one LuaDrawable per group with instanceCount > 1
+		// Transform uses the first instance (same as the C++ forward renderer).
+		for (auto& group : scene->instancedMeshes) {
+			assert(!group.empty());
+			Mesh& mesh = scene->meshes[group[0].mesh];
+			Rendering::LuaDrawable d{};
+			d.vertexBuffer = renderingServer.registerExternalBuffer(
+				mesh.vertexBuffer->buffer, mesh.vertexBuffer->allocation, 0);
+			d.indexBuffer = renderingServer.registerExternalBuffer(
+				mesh.indexBuffer->buffer, mesh.indexBuffer->allocation, 0);
+			d.indexCount = mesh.numIndices;
+			d.indexType = (mesh.indexType == VK_INDEX_TYPE_UINT16) ? "uint16" : "uint32";
+			d.instanceCount = static_cast<uint32_t>(group.size());
+			d.materialDynamicOffset = static_cast<uint32_t>(
+				scene->materials.getResourceOffset(group[0].material));
+			for (int col = 0; col < 4; col++)
+				for (int row = 0; row < 4; row++)
+					d.transform[col * 4 + row] = group[0].transform[col][row];
+			renderingServer.addSceneDrawable(d);
+		}
+
+		renderingServer.setOperatingUser(RenderingServer::ResourceUser::NONE);
 	}
 
 	void createClusterComputePipeline() {

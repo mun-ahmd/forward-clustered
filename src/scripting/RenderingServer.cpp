@@ -607,7 +607,9 @@ void RenderingServer::copyBufferIntoImage(
 
 void RenderingServer::destroyBuffer(Rendering::ResourceID buffer) {
 	Buffer buf = this->resources.get<Buffer>(buffer);
-	vmaDestroyBuffer(core->allocator, buf.buffer, buf.allocation);
+	if (!buf.isExternal) {
+		vmaDestroyBuffer(core->allocator, buf.buffer, buf.allocation);
+	}
 	this->resources.remove<Buffer>(buffer);
 }
 
@@ -1397,6 +1399,96 @@ void RenderingServer::callRenderFrame(uint32_t frameIndex, uint32_t imageIndex, 
 // and presentSwapchainImage are implemented in RenderingServerSwapchain.cpp to
 // avoid the Rendering::Image vs ::Image name clash that swapchain.hpp introduces.
 
+// --- Phase 3: Scene data access ---
+
+Rendering::ResourceID RenderingServer::registerExternalBuffer(VkBuffer buffer, VmaAllocation allocation, uint64_t size) {
+	Buffer buf{};
+	buf.buffer = buffer;
+	buf.allocation = allocation;
+	buf.allocatedSize = size;
+	buf.isExternal = true;
+	ResourceID id = this->resources.add(buf);
+	sceneExternalBufferIDs.push_back(id);
+	return id;
+}
+
+Rendering::ResourceID RenderingServer::registerExternalDescriptorSet(VkDescriptorSet ds, VkDescriptorSetLayout layout) {
+	DescriptorSet descriptorSet{};
+	descriptorSet.set = ds;
+	descriptorSet.layout = layout;
+	ResourceID id = this->resources.add(descriptorSet);
+	sceneExternalDescriptorSetIDs.push_back(id);
+	return id;
+}
+
+void RenderingServer::registerGlobalDescriptorSet(uint32_t frameIndex, Rendering::ResourceID dsID) {
+	if (globalDSIDs.size() <= frameIndex)
+		globalDSIDs.resize(frameIndex + 1, 0);
+	globalDSIDs[frameIndex] = dsID;
+}
+
+void RenderingServer::registerLightsDescriptorSet(uint32_t frameIndex, Rendering::ResourceID dsID) {
+	if (lightsDSIDs.size() <= frameIndex)
+		lightsDSIDs.resize(frameIndex + 1, 0);
+	lightsDSIDs[frameIndex] = dsID;
+}
+
+void RenderingServer::registerMaterialsDescriptorSet(Rendering::ResourceID dsID) {
+	materialsDSID = dsID;
+}
+
+void RenderingServer::setDepthFormat(std::string format) {
+	cachedDepthFormat = format;
+}
+
+void RenderingServer::addSceneDrawable(Rendering::LuaDrawable drawable) {
+	sceneDrawables.push_back(drawable);
+}
+
+void RenderingServer::clearSceneData() {
+	sceneDrawables.clear();
+	for (ResourceID id : sceneExternalBufferIDs)
+		this->resources.remove<Buffer>(id);
+	sceneExternalBufferIDs.clear();
+	for (ResourceID id : sceneExternalDescriptorSetIDs)
+		this->resources.remove<DescriptorSet>(id);
+	sceneExternalDescriptorSetIDs.clear();
+	globalDSIDs.clear();
+	lightsDSIDs.clear();
+	materialsDSID = 0;
+}
+
+sol::table RenderingServer::getSceneDrawables() {
+	sol::table t = lua.state.create_table();
+	for (size_t i = 0; i < sceneDrawables.size(); i++) {
+		t[static_cast<int>(i + 1)] = sceneDrawables[i];
+	}
+	return t;
+}
+
+Rendering::ResourceID RenderingServer::getGlobalDescriptorSet(uint32_t frameIndex) {
+	assert(frameIndex < globalDSIDs.size() && "global DS not registered for this frame index");
+	return globalDSIDs[frameIndex];
+}
+
+Rendering::ResourceID RenderingServer::getLightsDescriptorSet(uint32_t frameIndex) {
+	assert(frameIndex < lightsDSIDs.size() && "lights DS not registered for this frame index");
+	return lightsDSIDs[frameIndex];
+}
+
+Rendering::ResourceID RenderingServer::getMaterialsDescriptorSet() {
+	assert(materialsDSID != 0 && "materials DS not registered");
+	return materialsDSID;
+}
+
+uint32_t RenderingServer::getFramesInFlight() {
+	return static_cast<uint32_t>(globalDSIDs.size());
+}
+
+std::string RenderingServer::getDepthFormat() {
+	return cachedDepthFormat;
+}
+
 void RenderingServer::waitForFence(ResourceID fenceID) {
 	VkFence fence = this->resources.get<Fence>(fenceID).fence;
 	vkWaitForFences(core->device, 1, &fence, VK_TRUE, UINT64_MAX);
@@ -1572,6 +1664,17 @@ void bindRenderingCreateInfoToLua(sol::state& luaState) {
 		"dstY1", &BlitImageInfo::dstY1,
 		"dstZ1", &BlitImageInfo::dstZ1
 	);
+	luaState.new_usertype<LuaDrawable>(
+		"LuaDrawable",
+		sol::constructors<LuaDrawable()>(),
+		"vertexBuffer",          &LuaDrawable::vertexBuffer,
+		"indexBuffer",           &LuaDrawable::indexBuffer,
+		"indexCount",            &LuaDrawable::indexCount,
+		"indexType",             &LuaDrawable::indexType,
+		"instanceCount",         &LuaDrawable::instanceCount,
+		"materialDynamicOffset", &LuaDrawable::materialDynamicOffset,
+		"getTransformAt",        &LuaDrawable::getTransformAt
+	);
 	luaState.new_usertype<CommandBufferSubmitInfo>(
 		"CommandBufferSubmitInfo",
 		sol::constructors<CommandBufferSubmitInfo()>(),
@@ -1678,4 +1781,10 @@ void bindRenderingServerToLua(sol::table& rendering, RenderingServer* server) {
 	rendering.set_function("setRenderFrameCallback",     &RenderingServer::setRenderFrameCallback,     server);
 	rendering.set_function("acquireNextSwapchainImage",  &RenderingServer::acquireNextSwapchainImage,  server);
 	rendering.set_function("presentSwapchainImage",      &RenderingServer::presentSwapchainImage,      server);
+	rendering.set_function("getSceneDrawables",          &RenderingServer::getSceneDrawables,          server);
+	rendering.set_function("getGlobalDescriptorSet",     &RenderingServer::getGlobalDescriptorSet,     server);
+	rendering.set_function("getLightsDescriptorSet",     &RenderingServer::getLightsDescriptorSet,     server);
+	rendering.set_function("getMaterialsDescriptorSet",  &RenderingServer::getMaterialsDescriptorSet,  server);
+	rendering.set_function("getFramesInFlight",          &RenderingServer::getFramesInFlight,          server);
+	rendering.set_function("getDepthFormat",             &RenderingServer::getDepthFormat,             server);
 }
