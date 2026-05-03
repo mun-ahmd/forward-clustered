@@ -40,5 +40,7 @@ T getBitFlagsFromString(const std::unordered_map<std::string, T>& map, std::stri
 			substrStart = i + 1;
 		}
 	}
+	// Process the final (or only) token after the last '_'
+	flags |= getEnumFromString(map, multikey.substr(substrStart));
 	return flags;
 }
