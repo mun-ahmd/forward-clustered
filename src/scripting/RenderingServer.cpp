@@ -1827,7 +1827,8 @@ void bindRenderingServerToLua(sol::table& rendering, RenderingServer* server);
 
 void RenderingServer::registerRenderingBindings()
 {
-	lua.state.open_libraries(sol::lib::base);
+	// Default Lua/LuaJIT stdlibs (math, string, table, os, io, package, …) for rendering + scene scripts.
+	lua.state.open_libraries();
 	lua.rendering = lua.state.create_named_table("rendering");
 	lua.state["rs"] = lua.rendering;
 	bindRenderingCreateInfoToLua(lua.state);

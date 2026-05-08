@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cstdlib>
 #include <cstddef>
 #include <typeinfo>
 #include <unordered_map>
@@ -477,12 +478,21 @@ public:
 		lua.state = sol::state();
 		this->registerRenderingBindings();
 		lua.load = lua.state.load_file(scriptPath);
+		if (!lua.load.valid()) {
+			std::cerr << "Failed to load Lua script \"" << scriptPath << "\":" << std::endl;
+			sol::error err = lua.load.get<sol::error>();
+			std::cerr << err.what() << std::endl;
+			std::exit(EXIT_FAILURE);
+		}
 	}
 
 	void executeRenderingScript() {
+		if (!lua.load.valid()) {
+			std::cerr << "Lua script was not loaded; cannot execute \"" << lua.scriptPath << "\"." << std::endl;
+			std::exit(EXIT_FAILURE);
+		}
 		sol::protected_function_result renderingResult = lua.load.call();
 		if (!renderingResult.valid()) {
-			//handle error
 			std::cerr <<
 				"Error while executing rendering script: \"" <<
 				lua.scriptPath <<
@@ -492,6 +502,7 @@ public:
 			std::cerr <<
 				(static_cast<sol::error>(renderingResult).what()) <<
 				std::endl;
+			std::exit(EXIT_FAILURE);
 		}
 	}
 
