@@ -20,3 +20,5 @@ ImageResizer.exe
 ImageResizer.pdb
 /Shaders/.vscode/settings.json
 ObjectStore/*
+build/*
+build-debug/*

@@ -37,6 +37,12 @@
     <Filter Include="Header Files\rendering">
       <UniqueIdentifier>{df8f72f4-1cf3-41b4-867c-c50da7dd6933}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\SDF">
+      <UniqueIdentifier>{5c2eba33-dfc0-48f9-9118-8b0ee2cbd2dc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Rendering Server">
+      <UniqueIdentifier>{d8e52f70-af4f-4a7e-b769-92192d12aae5}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -74,6 +80,9 @@
     </ClCompile>
     <ClCompile Include="ImageLoader.cpp">
       <Filter>Source Files\src</Filter>
+    </ClCompile>
+    <ClCompile Include="RenderingServer.cpp">
+      <Filter>Header Files\Rendering Server</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -149,17 +158,56 @@
     <ClInclude Include="skybox.hpp">
       <Filter>Header Files\rendering</Filter>
     </ClInclude>
-    <ClInclude Include="light.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="storage_helper.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="asyncImageLoader.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="ConcurrentQueue.hpp">
       <Filter>Header Files\helpers</Filter>
+    </ClInclude>
+    <ClInclude Include="light.hpp">
+      <Filter>Header Files\resources</Filter>
+    </ClInclude>
+    <ClInclude Include="storage_helper.hpp">
+      <Filter>Header Files\helpers</Filter>
+    </ClInclude>
+    <ClInclude Include="asyncImageLoader.hpp">
+      <Filter>Header Files\resources</Filter>
+    </ClInclude>
+    <ClInclude Include="GLTFScene.hpp">
+      <Filter>Header Files\rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="sdfGenerator.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="forwardRenderer.hpp">
+      <Filter>Header Files\rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="postProcessing.hpp">
+      <Filter>Header Files\rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="depthOnlyRenderer.hpp">
+      <Filter>Header Files\rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="rendererBase.hpp">
+      <Filter>Header Files\rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="rendering.hpp">
+      <Filter>Header Files\rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderingCreateInfo.hpp">
+      <Filter>Header Files\Rendering Server</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderingResources.hpp">
+      <Filter>Header Files\Rendering Server</Filter>
+    </ClInclude>
+    <ClInclude Include="EnumsFromStrings.hpp">
+      <Filter>Header Files\Rendering Server</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderingServer.hpp">
+      <Filter>Header Files\Rendering Server</Filter>
+    </ClInclude>
+    <ClInclude Include="screenSpaceAO.hpp">
+      <Filter>Header Files\rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="EnumStringConversionBase.hpp">
+      <Filter>Header Files\Rendering Server</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

@@ -1,0 +1,237 @@
+#pragma once
+#include "assets/ImageLoader.hpp"
+#include "assets/ConcurrentQueue.hpp"
+#include "core/buffer.hpp"
+
+#include <glm/glm.hpp>
+
+#include <thread>
+#include <atomic>
+
+#include <string>
+#include <iostream>
+#include <vector>
+#include <functional>
+
+//todo add multiple workers
+
+struct ImageLoadRequest{
+	std::string path;
+	glm::ivec3 resolution;
+	int desiredChannels;
+
+	bool isSRGB = true;
+	bool isFloat = false;
+
+	std::function<void(ImageLoadRequest&, std::shared_ptr<Buffer>)> callback;
+
+	bool __isComplete;
+	bool __isSuccess;
+	
+	int __assigned_buffer__ = -1; // set by worker before result is pushed; internal
+	int __id__; //internal
+};
+
+class AsyncImageLoader {
+private:
+	const glm::ivec3 maxDimensions;
+	const int maxNumComponents;
+	const size_t bufferSizeBytes;
+	const int numBuffers;
+
+	std::vector<std::shared_ptr<Buffer>> stagingBuffers;
+	//boolean telling whether it is free or not (if free it is true)
+	std::vector<bool> isBufferFree;
+
+	ConcurrentQueue<ImageLoadRequest> requestQueue;
+	ConcurrentQueue<ImageLoadRequest> resultQueue;
+
+	std::thread worker;
+	std::atomic<bool> stopWorker{ false };
+	bool isWorkerRunning = false;
+	
+
+	void workerThread() {
+		while (!stopWorker) {
+			if (requestQueue.empty())
+				continue;
+
+			//allot staging buffer to request
+			int allotted = 0;
+			{
+				for (; allotted < this->stagingBuffers.size(); allotted++) {
+					if (this->isBufferFree[allotted]) {
+						break;
+					}
+				}
+				if (allotted == stagingBuffers.size()) {
+					//could not allot
+					continue;
+				}
+				//mark not free anymore
+				this->isBufferFree[allotted] = false;
+			}
+
+			auto req = requestQueue.pop();
+			req.__assigned_buffer__ = allotted;
+			std::cout << "Worker " << req.__id__ << " popped: " << req.path << " " << req.resolution.x << "x" << req.resolution.y  << " (" << req.desiredChannels << ")" << std::endl;
+
+			std::shared_ptr<Buffer> staging = this->stagingBuffers[allotted];
+
+			{
+				if (req.isFloat) {
+					FloatImagePtr imageData = loadFloatImageFromFile(
+						req.path.c_str(),
+						req.desiredChannels
+					);
+
+					if (imageData->getResolution() != glm::ivec2(req.resolution)) {
+						//need to resize image
+						imageData = imageData->resize(req.resolution.x, req.resolution.y);
+					}
+
+					memcpy(
+						staging->getMappedData(),
+						imageData->getData(),
+						imageData->getSizeInBytes()
+					);
+					imageData.reset();
+				}
+				else
+				{
+					ImagePtr imageData = loadImageFromFile(
+						req.path.c_str(),
+						req.isSRGB,
+						req.desiredChannels
+					);
+
+					if (imageData->getResolution() != glm::ivec2(req.resolution)) {
+						//need to resize image
+						imageData = imageData->resize(req.resolution.x, req.resolution.y);
+					}
+
+					memcpy(
+						staging->getMappedData(),
+						imageData->getData(),
+						imageData->getSizeInBytes()
+					);
+
+					imageData.reset();
+				}
+			}
+
+			req.__isComplete = true;
+			req.__isSuccess = true;
+			resultQueue.push(req);
+		}
+	}
+
+public:
+	AsyncImageLoader() = delete;
+	AsyncImageLoader(const AsyncImageLoader& loader) = delete;
+
+	//maxDimensions apply for float images, so normal byte per component images have a larger upper bound
+	AsyncImageLoader(glm::ivec3 maxDimensions, int maxNumComponents, int numBuffers)
+		: 
+		maxDimensions(maxDimensions),
+		maxNumComponents(maxNumComponents),
+		bufferSizeBytes(
+			(size_t)maxDimensions.x *
+			maxDimensions.y *
+			maxDimensions.z *
+			maxNumComponents *
+			sizeof(float)
+		),
+		numBuffers(numBuffers)
+	{}
+
+	~AsyncImageLoader() {
+		if (isWorkerRunning) {
+			this->stop();
+		}
+		if (!this->requestQueue.empty()) {
+			std::cout << "Warning Async Image Loader being destroyed with non empty requests queue" << std::endl;
+		}
+		if (!this->resultQueue.empty()) {
+			std::cout << "Warning Async Image Loader being destroyed with non empty results queue" << std::endl;
+		}
+	}
+	
+	void init() {
+		//create staging buffers
+		size_t maxSize = bufferSizeBytes;
+
+		for (int i = 0; i < this->numBuffers; i++) {
+			this->stagingBuffers.push_back(
+				prepareStagingBufferPersistant(VulkanUtils::utils().getCore(), maxSize)
+			);
+			this->isBufferFree.push_back(true);
+		}
+	}
+
+	void start() {
+		assert(isWorkerRunning == false);
+		
+		stopWorker = false;
+ 		this->worker = std::thread(
+			&AsyncImageLoader::workerThread,
+			this
+		);
+		isWorkerRunning = true;
+	}
+
+	void stop() {
+		assert(isWorkerRunning == true);
+		
+		stopWorker = true;
+		worker.join();
+		isWorkerRunning = false;
+	}
+
+	int ids = 0;
+	void request(ImageLoadRequest req) {
+#ifndef NDEBUG
+		if (
+			(
+				(size_t)req.resolution.x *
+				req.resolution.y *
+				req.resolution.z *
+				(req.isFloat ? sizeof(float) : sizeof(unsigned char))
+			) > bufferSizeBytes
+		){
+			std::cerr << (
+				"ImageLoadRequest resolution too large! " +
+				req.path + ": " +
+				std::to_string(req.resolution.x) + "x" +
+				std::to_string(req.resolution.y) + "x" +
+				std::to_string(req.resolution.z)
+				);
+			assert(false);
+		}
+#endif
+
+		req.__id__ = ids++;
+		req.__isComplete = false;
+		req.__isSuccess = false;
+		
+		this->requestQueue.push(req);
+	}
+
+	void processResults() {
+		while (auto opt = resultQueue.try_pop()) {
+			ImageLoadRequest result = std::move(*opt);
+			const int bi = result.__assigned_buffer__;
+			const bool idxOk = bi >= 0 && bi < (int)this->stagingBuffers.size();
+
+			if (result.__isComplete && result.__isSuccess && idxOk) {
+				result.callback(result, this->stagingBuffers[bi]);
+				this->isBufferFree[bi] = true;
+			}
+			else {
+				std::cerr << "Could not service async image load request" << std::endl;
+				if (idxOk)
+					this->isBufferFree[bi] = true;
+			}
+		}
+	}
+};
