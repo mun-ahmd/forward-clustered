@@ -2,7 +2,7 @@
   Standalone cloud demo: 3D noise in a storage buffer, compute fills an HDR-ish RGBA buffer,
   fullscreen pass tonemaps to LDR and blits to the swapchain.
 
-  Set RENDERING_SCRIPT in master.lua to this file. All logic stays in this script (no rendering.lua hook).
+  Point master.lua / scene metadata at scripts/rendering/cloud_rendering.lua. Self-contained (no rendering.lua hook).
 
   3D noise uses a storage buffer (no VkImage3D) because the Lua descriptor pool has no storageImage slots.
 ]]

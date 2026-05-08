@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <vector>
 #include <string>
+#include <optional>
 
 #include <lua.hpp>
 #include <sol/sol.hpp>
@@ -505,6 +506,18 @@ public:
 			std::exit(EXIT_FAILURE);
 		}
 	}
+
+	void setResourceUserByName(const std::string& name);
+
+	void setDiscoveredScriptLists(
+		const std::vector<std::string>& sceneScripts,
+		const std::vector<std::string>& renderingScripts);
+
+	bool evalSceneLoadsGltf(const std::string& scenePath);
+
+	bool        objectStoreHasKey(const std::string& key);
+	std::optional<std::string> objectStoreGetString(const std::string& key);
+	void        objectStoreSetString(const std::string& key, const std::string& value);
 
 	Rendering::ResourceID createImage(Rendering::ImageCreateInfo createInfo);
 	void cmdTransitionImageLayout(

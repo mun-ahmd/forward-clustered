@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <numeric>
 #include <iostream>
 #include <vector>
@@ -39,6 +40,56 @@
 #include "assets/asyncImageLoader.hpp"
 
 #include "assets/GLTFScene.hpp"
+
+namespace {
+
+constexpr const char kStoreActiveSceneScript[] = "activeSceneScript";
+
+std::string storeKeyRenderingForScene(const std::string& scenePath) {
+	std::string k = "renderingScriptFor_";
+	for (char c : scenePath)
+		k += (c == '/') ? '_' : c;
+	return k;
+}
+
+std::vector<std::string> discoverLuaScriptsUnder(const std::filesystem::path& dir) {
+	namespace fs = std::filesystem;
+	std::vector<std::string> out;
+	std::error_code ec;
+	fs::path cwd = fs::current_path(ec);
+	if (ec) return out;
+	fs::path absDir = fs::weakly_canonical(fs::absolute(dir), ec);
+	if (ec || !fs::exists(absDir)) return out;
+	for (const auto& entry : fs::recursive_directory_iterator(absDir)) {
+		if (!entry.is_regular_file()) continue;
+		if (entry.path().extension() != ".lua") continue;
+		fs::path rel = fs::relative(entry.path(), cwd, ec);
+		if (ec) continue;
+		out.push_back(rel.generic_string());
+	}
+	std::sort(out.begin(), out.end());
+	return out;
+}
+
+std::vector<std::string> discoverRenderingScriptPaths() {
+	namespace fs = std::filesystem;
+	std::vector<std::string> out = discoverLuaScriptsUnder("scripts/rendering");
+	std::error_code ec;
+	fs::path cwd = fs::current_path(ec);
+	if (!ec) {
+		fs::path stub = fs::weakly_canonical(fs::absolute("scripts/rendering.lua"), ec);
+		if (!ec && fs::is_regular_file(stub)) {
+			fs::path rel = fs::relative(stub, cwd, ec);
+			if (!ec)
+				out.push_back(rel.generic_string());
+		}
+	}
+	std::sort(out.begin(), out.end());
+	out.erase(std::unique(out.begin(), out.end()), out.end());
+	return out;
+}
+
+} // namespace
 
 constexpr int lightCount = 10;
 
@@ -135,6 +186,61 @@ private:
 
 	std::shared_ptr<GLTFScene> scene;
 
+	std::vector<std::string> discoveredSceneScripts;
+	std::vector<std::string> discoveredRenderingScripts;
+	std::string             currentSceneScriptPath;
+	std::string             currentRenderingScriptPath;
+	bool                    currentSceneLoadsGltf = true;
+
+	bool sceneScriptSwitchRequested       = false;
+	std::string pendingSceneScriptPath;
+	bool renderingScriptSwitchRequested   = false;
+	std::string pendingRenderingScriptPath;
+
+	std::string pickInitialSceneScriptPath() const {
+		const char* preferred = "scripts/scene/main.lua";
+		if (Store::itemInStore(kStoreActiveSceneScript)) {
+			auto bytes = Store::fetchBytes(kStoreActiveSceneScript);
+			std::string p(bytes.get());
+			while (!p.empty() && p.back() == '\0') p.pop_back();
+			for (const auto& d : discoveredSceneScripts) {
+				if (d == p) return p;
+			}
+		}
+		for (const auto& d : discoveredSceneScripts) {
+			if (d == preferred) return d;
+		}
+		if (!discoveredSceneScripts.empty())
+			return discoveredSceneScripts[0];
+		return std::string(preferred);
+	}
+
+	void syncScriptPathsFromLua() {
+		sol::state_view L = renderingServer.getLuaState();
+		sol::object cs = L["CURRENT_SCENE_SCRIPT"];
+		sol::object cr = L["CURRENT_RENDERING_SCRIPT"];
+		if (cs.valid() && cs.get_type() == sol::type::string)
+			currentSceneScriptPath = cs.as<std::string>();
+		if (cr.valid() && cr.get_type() == sol::type::string)
+			currentRenderingScriptPath = cr.as<std::string>();
+		sol::optional<bool> lg = L["CURRENT_SCENE_LOADS_GLTF"];
+		if (lg.has_value())
+			currentSceneLoadsGltf = lg.value();
+	}
+
+	void registerMasterCppHooks() {
+		sol::state_view L = renderingServer.getLuaState();
+		sol::table cpp = L.create_named_table("masterCpp");
+		cpp.set_function("reloadSceneGeometry", [this](bool loadsGltf) {
+			if (loadsGltf)
+				this->scene->loadScene(gltfModelSelector.loadedModelPath.c_str());
+			else
+				this->scene->clearScene();
+		});
+		cpp.set_function("connectForwardOutputs", [this]() { this->connectForwardOutputsToServer(); });
+		cpp.set_function("connectSceneToRenderer", [this]() { this->connectSceneToRenderingServer(); });
+	}
+
 	void getSupportedFormats() {	
 		std::vector<VkFormat> candidates = {
 			VK_FORMAT_BC7_SRGB_BLOCK,
@@ -203,7 +309,24 @@ private:
 			camera.movementSpeed() = loadedMovementSpeed;
 		}
 
-		this->scene->loadScene(gltfModelSelector.loadedModelPath.c_str());
+		discoveredSceneScripts = discoverLuaScriptsUnder("scripts/scene");
+		discoveredRenderingScripts = discoverRenderingScriptPaths();
+
+		std::string initialScene = pickInitialSceneScriptPath();
+
+		renderingServer.registerRenderingScript("scripts/master.lua");
+		sceneServer.init(renderingServer);
+		renderingServer.setDiscoveredScriptLists(discoveredSceneScripts, discoveredRenderingScripts);
+		registerMasterCppHooks();
+
+		currentSceneLoadsGltf = renderingServer.evalSceneLoadsGltf(initialScene);
+		currentSceneScriptPath = initialScene;
+
+		if (currentSceneLoadsGltf) {
+			this->scene->loadScene(gltfModelSelector.loadedModelPath.c_str());
+		} else {
+			this->scene->clearScene();
+		}
 
 		VkRect2D renderRegion{};
 		renderRegion.offset = { 0, 0 };
@@ -226,9 +349,8 @@ private:
 
 		imgui.init(core, this->frames[0].commandBuffer, swapChain.swapChainImageFormat);
 
-		renderingServer.registerRenderingScript("scripts/master.lua");
-		sceneServer.init(renderingServer);
 		renderingServer.executeRenderingScript();
+		syncScriptPathsFromLua();
 	}
 	 
 
@@ -363,9 +485,57 @@ private:
 
 		ImGui::Begin("UI");
 		{
-			if(ImGui::CollapsingHeader("Model Selection Menu"))
-			{
+			if (currentSceneLoadsGltf && ImGui::CollapsingHeader("Model Selection Menu")) {
 				gltfModelSelector.render([this]() { hasModelChanged = true; });
+			}
+
+			if (ImGui::CollapsingHeader("Scene scripts", ImGuiTreeNodeFlags_DefaultOpen)) {
+				const char* preview = currentSceneScriptPath.empty()
+					? "(none)"
+					: currentSceneScriptPath.c_str();
+				if (ImGui::BeginCombo("Scene##scenecombo", preview)) {
+					for (const auto& p : discoveredSceneScripts) {
+						bool sel = (p == currentSceneScriptPath);
+						if (ImGui::Selectable(p.c_str(), sel)) {
+							if (p != currentSceneScriptPath) {
+								pendingSceneScriptPath = p;
+								sceneScriptSwitchRequested = true;
+							}
+						}
+					}
+					ImGui::EndCombo();
+				}
+			}
+
+			if (ImGui::CollapsingHeader("Rendering scripts", ImGuiTreeNodeFlags_DefaultOpen)) {
+				std::vector<std::string> allowedRen;
+				sol::state_view luaView = renderingServer.getLuaState();
+				sol::table t = luaView["CURRENT_ALLOWED_RENDERING"];
+				if (t.valid()) {
+					for (size_t i = 1;; ++i) {
+						sol::optional<std::string> s = t[i];
+						if (!s.has_value()) break;
+						allowedRen.push_back(s.value());
+					}
+				}
+				if (allowedRen.empty()) {
+					allowedRen = discoveredRenderingScripts;
+				}
+				const char* rpreview = currentRenderingScriptPath.empty()
+					? "(none)"
+					: currentRenderingScriptPath.c_str();
+				if (ImGui::BeginCombo("Rendering##rencombo", rpreview)) {
+					for (const auto& p : allowedRen) {
+						bool sel = (p == currentRenderingScriptPath);
+						if (ImGui::Selectable(p.c_str(), sel)) {
+							if (p != currentRenderingScriptPath) {
+								pendingRenderingScriptPath = p;
+								renderingScriptSwitchRequested = true;
+							}
+						}
+					}
+					ImGui::EndCombo();
+				}
 			}
 
 			if (ImGui::CollapsingHeader("Camera settings"))
@@ -628,7 +798,7 @@ private:
 
 		while (!glfwWindowShouldClose(core->window)) {
 			try {
-				if (hasModelChanged) {
+				if (hasModelChanged && currentSceneLoadsGltf) {
 					//wait for meshes to go out of use
 					vkDeviceWaitIdle(core->device);
 					// Flush async texture completions while scene resources still match callbacks.
@@ -665,18 +835,43 @@ private:
 
 					sceneServer.callSceneReloadCallback();
 
-					// destroyAllSceneResources() wipes all SCENE-tagged entries from
-					// the resource store (including C++-owned external buffers and
-					// descriptor sets). Re-register them so the rendering script can
-					// still find them by ResourceID next frame.
-					connectForwardOutputsToServer();
-					connectSceneToRenderingServer();
-
 					auto end = std::chrono::high_resolution_clock::now();
 					auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 					std::cout << "Scene reload took: " << duration.count() << " ms" << std::endl;
 
 					reloadScene = false;
+				}
+
+				if (sceneScriptSwitchRequested) {
+					vkDeviceWaitIdle(core->device);
+					imageLoader->processResults();
+					sol::state_view luaState = renderingServer.getLuaState();
+					sol::protected_function applyScene = luaState["__masterApplySceneSwitch"];
+					if (applyScene.valid()) {
+						sol::protected_function_result sw = applyScene(pendingSceneScriptPath);
+						if (!sw.valid()) {
+							sol::error err = sw;
+							std::cerr << "__masterApplySceneSwitch: " << err.what() << std::endl;
+						}
+					}
+					syncScriptPathsFromLua();
+					sceneScriptSwitchRequested = false;
+				}
+
+				if (renderingScriptSwitchRequested) {
+					vkDeviceWaitIdle(core->device);
+					imageLoader->processResults();
+					sol::state_view luaState = renderingServer.getLuaState();
+					sol::protected_function applyRen = luaState["__masterApplyRenderingSwitch"];
+					if (applyRen.valid()) {
+						sol::protected_function_result rw = applyRen(pendingRenderingScriptPath);
+						if (!rw.valid()) {
+							sol::error err = rw;
+							std::cerr << "__masterApplyRenderingSwitch: " << err.what() << std::endl;
+						}
+					}
+					syncScriptPathsFromLua();
+					renderingScriptSwitchRequested = false;
 				}
 
 				//transfer async images loaded

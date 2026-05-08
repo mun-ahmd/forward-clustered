@@ -1,7 +1,12 @@
+#include <vector>
+#include <string>
+#include <optional>
+
 #include "scripting/RenderingServer.hpp"
 #include "scripting/RenderingResources.hpp"
 #include "scripting/EnumsFromStrings.hpp"
 #include "core/vulkan_utils.hpp"
+#include "util/storage_helper.hpp"
 
 using namespace Rendering;
 
@@ -1376,6 +1381,74 @@ void RenderingServer::init() {
 	registerResourceTypes();
 }
 
+void RenderingServer::setResourceUserByName(const std::string& name) {
+	if (name == "lua" || name == "LUA") {
+		setOperatingUser(ResourceUser::LUA);
+	} else if (name == "scene" || name == "SCENE") {
+		setOperatingUser(ResourceUser::SCENE);
+	} else {
+		setOperatingUser(ResourceUser::NONE);
+	}
+}
+
+void RenderingServer::setDiscoveredScriptLists(
+	const std::vector<std::string>& sceneScripts,
+	const std::vector<std::string>& renderingScripts
+) {
+	sol::table sceneTable = lua.state.create_table();
+	for (size_t i = 0; i < sceneScripts.size(); ++i) {
+		sceneTable[i + 1] = sceneScripts[i];
+	}
+	sol::table renderingTable = lua.state.create_table();
+	for (size_t i = 0; i < renderingScripts.size(); ++i) {
+		renderingTable[i + 1] = renderingScripts[i];
+	}
+	lua.state["DISCOVERED_SCENE_SCRIPTS"] = sceneTable;
+	lua.state["DISCOVERED_RENDERING_SCRIPTS"] = renderingTable;
+}
+
+bool RenderingServer::objectStoreHasKey(const std::string& key) {
+	return Store::itemInStore(key.c_str());
+}
+
+std::optional<std::string> RenderingServer::objectStoreGetString(const std::string& key) {
+	if (!Store::itemInStore(key.c_str())) {
+		return std::nullopt;
+	}
+	auto bytes = Store::fetchBytes(key.c_str());
+	std::string p(bytes.get());
+	while (!p.empty() && p.back() == '\0') {
+		p.pop_back();
+	}
+	return p;
+}
+
+void RenderingServer::objectStoreSetString(const std::string& key, const std::string& value) {
+	Store::storeBytes(key.c_str(), value.data(), static_cast<unsigned int>(value.size() + 1));
+}
+
+bool RenderingServer::evalSceneLoadsGltf(const std::string& scenePath) {
+	sol::load_result lr = lua.state.load_file(scenePath);
+	if (!lr.valid()) {
+		std::cerr << "evalSceneLoadsGltf: failed to load compile scene script \"" <<
+			scenePath << "\"." << std::endl;
+		return true;
+	}
+	sol::protected_function chunk = lr;
+	sol::protected_function_result exec = chunk();
+	if (!exec.valid()) {
+		sol::error err = exec;
+		std::cerr << "evalSceneLoadsGltf: " << err.what() << std::endl;
+		return true;
+	}
+	sol::table mod = exec.get<sol::table>(0);
+	sol::optional<bool> lg = mod["loadsGltf"];
+	if (!lg.has_value()) {
+		return true;
+	}
+	return lg.value();
+}
+
 void RenderingServer::setRenderFrameCallback(sol::protected_function fn) {
 	renderFrameCallback = std::move(fn);
 }
@@ -2108,6 +2181,10 @@ void bindRenderingServerToLua(sol::table& rendering, RenderingServer* server) {
 	rendering.set_function("setRenderFrameCallback",     &RenderingServer::setRenderFrameCallback,     server);
 	rendering.set_function("setHotReloadCallback",       &RenderingServer::setHotReloadCallback,       server);
 	rendering.set_function("destroyAllLuaResources",     &RenderingServer::destroyAllLuaResources,     server);
+	rendering.set_function("setResourceUser",            &RenderingServer::setResourceUserByName,       server);
+	rendering.set_function("objectStoreHasKey",          &RenderingServer::objectStoreHasKey,           server);
+	rendering.set_function("objectStoreGetString",       &RenderingServer::objectStoreGetString,        server);
+	rendering.set_function("objectStoreSetString",       &RenderingServer::objectStoreSetString,        server);
 	rendering.set_function("acquireNextSwapchainImage",  &RenderingServer::acquireNextSwapchainImage,  server);
 	rendering.set_function("presentSwapchainImage",      &RenderingServer::presentSwapchainImage,      server);
 	rendering.set_function("writeToBuffer",              &RenderingServer::writeToBuffer,              server);
